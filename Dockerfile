@@ -12,6 +12,13 @@ RUN npm run build
 FROM python:3.11-slim
 WORKDIR /app
 
+# Install Node.js for running Next.js
+RUN apt-get update && apt-get install -y \
+    curl \
+    && curl -fsSL https://deb.nodesource.com/setup_18.x | bash - \
+    && apt-get install -y nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
 # Install system dependencies for Playwright
 RUN apt-get update && apt-get install -y \
     wget \
