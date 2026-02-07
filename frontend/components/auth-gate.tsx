@@ -43,38 +43,56 @@ export function AuthGate({ onAuthenticated }: AuthGateProps) {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-background via-background to-muted p-4">
-      <Card className="w-full max-w-md animate-fade-in">
-        <CardHeader className="text-center">
-          <div className="mx-auto mb-4">
+    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-background via-background to-muted/30 p-4">
+      <Card className="w-full max-w-md animate-fade-in shadow-xl border">
+        <CardHeader className="text-center space-y-4 pb-6">
+          <div className="mx-auto">
             <Image
               src="/logo.jpg"
               alt="Logo"
-              width={120}
-              height={120}
-              className="rounded-2xl"
+              width={140}
+              height={140}
+              className="rounded-3xl shadow-lg ring-2 ring-primary/10"
             />
           </div>
-          <CardTitle className="text-2xl">Legal Clause Analyzer</CardTitle>
-          <CardDescription>Enter the application password to continue</CardDescription>
+          <div className="space-y-1.5">
+            <CardTitle className="text-2xl font-bold tracking-tight">Legal Clause Analyzer</CardTitle>
+            <CardDescription className="text-sm">
+              AI-Powered Agreement Comparison Tool
+            </CardDescription>
+          </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4 pb-6">
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="relative">
-              <Lock className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+              <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
                 type="password"
-                placeholder="Password"
+                placeholder="Enter your password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="pl-9"
+                className="pl-10 h-11 text-sm border-2 focus:border-primary"
                 autoFocus
               />
             </div>
-            {error && <p className="text-sm text-destructive">{error}</p>}
-            <Button type="submit" className="w-full" disabled={loading}>
-              {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              {loading ? "Verifying…" : "Continue"}
+            {error && (
+              <div className="rounded-lg bg-destructive/10 border border-destructive/20 p-2.5">
+                <p className="text-sm text-destructive font-medium">{error}</p>
+              </div>
+            )}
+            <Button 
+              type="submit" 
+              className="w-full h-11 text-sm font-semibold shadow-md hover:shadow-lg transition-shadow" 
+              disabled={loading}
+            >
+              {loading ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Verifying…
+                </>
+              ) : (
+                "Continue"
+              )}
             </Button>
           </form>
         </CardContent>
