@@ -1,0 +1,227 @@
+"use client";
+
+import { useState, useEffect, useMemo } from "react";
+import { toast } from "sonner";
+import { Search } from "lucide-react";
+
+import { Header } from "@/components/header";
+import { AuthGate } from "@/components/auth-gate";
+import { ClauseEditor } from "@/components/clause-editor";
+import { SourcePanel } from "@/components/source-panel";
+import { ProgressOverlay } from "@/components/progress-overlay";
+import { ResultsMatrix } from "@/components/results-matrix";
+import { ResultDetail } from "@/components/result-detail";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { useAnalysis } from "@/hooks/use-analysis";
+import type { AnalysisResult } from "@/lib/types";
+
+export default function Home() {
+  // --- Auth ---
+  const [authenticated, setAuthenticated] = useState(false);
+
+  useEffect(() => {
+    const saved = localStorage.getItem("app_password");
+    if (saved) setAuthenticated(true);
+  }, []);
+
+  const handleLogout = () => {
+    localStorage.removeItem("app_password");
+    setAuthenticated(false);
+  };
+
+  // --- Inputs ---
+  const [clauses, setClauses] = useState<string[]>([""]);
+  const [files, setFiles] = useState<File[]>([]);
+  const [htmlLinks, setHtmlLinks] = useState("");
+
+  // --- Analysis ---
+  const analysis = useAnalysis();
+
+  // Show toast on completion / error
+  useEffect(() => {
+    if (!analysis.loading && analysis.results.length > 0 && !analysis.error) {
+      toast.success(`Analysis complete — ${analysis.results.length} comparison(s) processed.`);
+    }
+    if (analysis.error && analysis.error !== "AUTH_REQUIRED") {
+      toast.error(analysis.error);
+    }
+    if (analysis.error === "AUTH_REQUIRED") {
+      setAuthenticated(false);
+      localStorage.removeItem("app_password");
+    }
+  }, [analysis.loading, analysis.results.length, analysis.error]);
+
+  // --- Derived ---
+  const linkList = useMemo(
+    () =>
+      htmlLinks
+        .split("\n")
+        .map((l) => l.trim())
+        .filter((l) => l.startsWith("http")),
+    [htmlLinks]
+  );
+
+  const canSubmit = useMemo(() => {
+    const hasClause = clauses.some((c) => c.trim().length > 0);
+    const hasSource = files.length > 0 || linkList.length > 0;
+    return hasClause && hasSource && !analysis.loading;
+  }, [clauses, files, linkList, analysis.loading]);
+
+  const handleAnalyze = () => {
+    const nonEmpty = clauses.filter((c) => c.trim());
+    if (nonEmpty.length === 0) {
+      toast.error("Enter at least one clause.");
+      return;
+    }
+    if (files.length === 0 && linkList.length === 0) {
+      toast.error("Upload at least one PDF or provide an HTML link.");
+      return;
+    }
+    analysis.run(nonEmpty, linkList, files);
+  };
+
+  // --- Filtering ---
+  const [filterClassification, setFilterClassification] = useState("ALL");
+  const [filterPdf, setFilterPdf] = useState("ALL");
+
+  const uniquePdfs = useMemo(
+    () => [...new Set(analysis.results.map((r) => r.pdf_filename))],
+    [analysis.results]
+  );
+
+  const filteredResults = useMemo(() => {
+    let res = analysis.results;
+    if (filterClassification !== "ALL") res = res.filter((r) => r.classification === filterClassification);
+    if (filterPdf !== "ALL") res = res.filter((r) => r.pdf_filename === filterPdf);
+    return res;
+  }, [analysis.results, filterClassification, filterPdf]);
+
+  // Group by clause
+  const clauseGroups = useMemo(() => {
+    const groups: Record<string, AnalysisResult[]> = {};
+    for (const r of filteredResults) {
+      const key = r.apple_clause;
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(r);
+    }
+    return groups;
+  }, [filteredResults]);
+
+  const clauseKeys = Object.keys(clauseGroups);
+
+  // --- Render ---
+  if (!authenticated) {
+    return <AuthGate onAuthenticated={() => setAuthenticated(true)} />;
+  }
+
+  return (
+    <div className="min-h-screen bg-background">
+      <Header authenticated={authenticated} onLogout={handleLogout} />
+
+      {/* Progress overlay */}
+      {analysis.loading && (
+        <ProgressOverlay
+          completed={analysis.completed}
+          total={analysis.total}
+          currentItem={analysis.currentItem}
+        />
+      )}
+
+      <main className="container mx-auto space-y-8 px-4 py-8">
+        {/* Inputs */}
+        <div className="grid gap-6 lg:grid-cols-2">
+          <ClauseEditor clauses={clauses} onChange={setClauses} />
+          <SourcePanel files={files} htmlLinks={htmlLinks} onFilesChange={setFiles} onLinksChange={setHtmlLinks} />
+        </div>
+
+        {/* Analyze button */}
+        <div className="space-y-2">
+          <Button
+            size="lg"
+            className="w-full text-base"
+            disabled={!canSubmit}
+            onClick={handleAnalyze}
+          >
+            <Search className="mr-2 h-5 w-5" />
+            Analyze Clauses
+          </Button>
+          {!canSubmit && (
+            <p className="text-center text-sm text-muted-foreground">
+              {!clauses.some((c) => c.trim().length > 0) && "Enter at least one clause. "}
+              {files.length === 0 && linkList.length === 0 && "Upload a PDF or enter an HTML link."}
+            </p>
+          )}
+        </div>
+
+        {/* Results */}
+        {analysis.results.length > 0 && (
+          <section className="space-y-6 animate-fade-in">
+            <h2 className="text-2xl font-semibold">Results</h2>
+
+            {/* Matrix */}
+            <ResultsMatrix results={analysis.results} />
+
+            {/* Filters */}
+            <div className="flex flex-wrap gap-3">
+              <select
+                className="rounded-md border bg-background px-3 py-2 text-sm"
+                value={filterClassification}
+                onChange={(e) => setFilterClassification(e.target.value)}
+              >
+                <option value="ALL">All Classifications</option>
+                <option value="IDENTICAL">Identical</option>
+                <option value="SIMILAR">Similar</option>
+                <option value="NOT_PRESENT">Not Present</option>
+                <option value="ERROR">Error</option>
+              </select>
+              <select
+                className="rounded-md border bg-background px-3 py-2 text-sm"
+                value={filterPdf}
+                onChange={(e) => setFilterPdf(e.target.value)}
+              >
+                <option value="ALL">All Agreements</option>
+                {uniquePdfs.map((pdf) => (
+                  <option key={pdf} value={pdf}>
+                    {pdf}
+                  </option>
+                ))}
+              </select>
+              <Badge variant="secondary" className="self-center">
+                {filteredResults.length} result{filteredResults.length !== 1 ? "s" : ""}
+              </Badge>
+            </div>
+
+            {/* Tabbed details */}
+            {clauseKeys.length > 0 ? (
+              <Tabs defaultValue={clauseKeys[0]} className="w-full">
+                <TabsList className="mb-4 flex-wrap">
+                  {clauseKeys.map((key, i) => (
+                    <TabsTrigger key={key} value={key} className="max-w-[200px] truncate">
+                      Clause {i + 1}
+                    </TabsTrigger>
+                  ))}
+                </TabsList>
+
+                {clauseKeys.map((key) => (
+                  <TabsContent key={key} value={key} className="space-y-4">
+                    <p className="text-sm text-muted-foreground">
+                      <span className="font-medium">Clause:</span> {key}
+                    </p>
+                    {clauseGroups[key].map((result, ri) => (
+                      <ResultDetail key={ri} result={result} />
+                    ))}
+                  </TabsContent>
+                ))}
+              </Tabs>
+            ) : (
+              <p className="text-center text-muted-foreground">No results match the selected filters.</p>
+            )}
+          </section>
+        )}
+      </main>
+    </div>
+  );
+}
+
