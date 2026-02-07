@@ -21,14 +21,40 @@ export function SourcePanel({ files, htmlLinks, onFilesChange, onLinksChange }: 
   const [htmlPreviewIndex, setHtmlPreviewIndex] = useState<number | null>(null);
   const [htmlPreviewUrls, setHtmlPreviewUrls] = useState<Map<number, string>>(new Map());
   const [htmlPreviewLoading, setHtmlPreviewLoading] = useState<Map<number, boolean>>(new Map());
+  const [isDragging, setIsDragging] = useState(false);
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
-      const newFiles = Array.from(e.target.files);
+      const newFiles = Array.from(e.target.files).filter((f) => f.type === "application/pdf");
       onFilesChange([...files, ...newFiles]);
     }
     // Reset input so the same file can be selected again
     if (inputRef.current) inputRef.current.value = "";
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+
+    const droppedFiles = Array.from(e.dataTransfer.files).filter(
+      (f) => f.type === "application/pdf"
+    );
+    if (droppedFiles.length > 0) {
+      onFilesChange([...files, ...droppedFiles]);
+    }
   };
 
   const removeFile = (index: number) => {
@@ -127,15 +153,29 @@ export function SourcePanel({ files, htmlLinks, onFilesChange, onLinksChange }: 
             className="hidden"
             onChange={handleFileSelect}
           />
-          <Button
-            type="button"
-            variant="outline"
-            className="w-full border-dashed"
-            onClick={() => inputRef.current?.click()}
+          <div
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+            className={`relative w-full rounded-lg border-2 border-dashed transition-colors ${
+              isDragging
+                ? "border-primary bg-primary/5 scale-[1.02]"
+                : "border-muted-foreground/25 hover:border-primary/50"
+            }`}
           >
-            <FileUp className="mr-2 h-4 w-4" />
-            Choose PDF Files
-          </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              className="w-full h-24 flex-col gap-2 hover:bg-transparent"
+              onClick={() => inputRef.current?.click()}
+            >
+              <FileUp className={`h-6 w-6 transition-transform ${isDragging ? "scale-110" : ""}`} />
+              <span className="text-sm font-medium">
+                {isDragging ? "Drop PDF files here" : "Choose PDF Files or drag & drop"}
+              </span>
+              <span className="text-xs text-muted-foreground">PDF files only</span>
+            </Button>
+          </div>
 
           {files.length > 0 && (
             <div className="space-y-2">
