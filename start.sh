@@ -17,9 +17,13 @@ cd /app/frontend
 PORT=3000 npm start > /tmp/frontend.log 2>&1 &
 FRONTEND_PID=$!
 echo "Frontend started (PID: $FRONTEND_PID) on port 3000"
+echo "=== Services running ==="
+echo "Frontend: http://localhost:3000"
+echo "Backend: http://localhost:8000"
+echo "=== Waiting for requests ==="
 
-# Tail logs in background
-tail -f /tmp/backend.log /tmp/frontend.log &
+# Keep script running and show logs
+tail -f /tmp/backend.log /tmp/frontend.log
 
 # Function to cleanup on exit
 cleanup() {
