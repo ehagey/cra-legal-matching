@@ -5,12 +5,10 @@ function getPassword(): string {
   return localStorage.getItem("app_password") || "";
 }
 
-const BASE = ""; // proxied via next.config.mjs rewrites in dev
+const BASE = ""; // proxied via next.config.mjs rewrites
 
-// SSE connects directly to the backend to avoid Next.js proxy buffering
-const SSE_BASE = typeof window !== "undefined"
-  ? (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000")
-  : "";
+// SSE also uses the proxy in production (Next.js handles SSE properly)
+const SSE_BASE = BASE;
 
 // ---- Health ----
 
