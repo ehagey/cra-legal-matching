@@ -7,9 +7,18 @@ cd /app/backend
 python main.py > /tmp/backend.log 2>&1 &
 BACKEND_PID=$!
 
-# Wait for backend to be ready
-sleep 3
-echo "Backend started (PID: $BACKEND_PID)"
+# Wait for backend to be ready (check health endpoint)
+echo "Waiting for backend to be ready..."
+for i in {1..30}; do
+  if curl -s http://127.0.0.1:8000/api/health > /dev/null 2>&1; then
+    echo "Backend is ready! (PID: $BACKEND_PID)"
+    break
+  fi
+  if [ $i -eq 30 ]; then
+    echo "Warning: Backend health check timed out, but continuing..."
+  fi
+  sleep 1
+done
 
 echo "Starting frontend..."
 # Start Next.js frontend (production mode)

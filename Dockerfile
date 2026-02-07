@@ -79,7 +79,7 @@ COPY --from=frontend-builder /app/frontend/node_modules ./frontend/node_modules
 ENV PYTHONPATH=/app/backend
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=3000
-ENV BACKEND_URL=http://localhost:8000
+ENV BACKEND_URL=http://127.0.0.1:8000
 
 # Expose port
 EXPOSE 3000
