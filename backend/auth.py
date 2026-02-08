@@ -22,8 +22,12 @@ class PasswordAuthMiddleware(BaseHTTPMiddleware):
 
         # Check password header
         password = request.headers.get("X-App-Password", "")
-        if not APP_PASSWORD or password != APP_PASSWORD:
-            raise HTTPException(status_code=401, detail="Invalid or missing password")
+        if not APP_PASSWORD:
+            raise HTTPException(status_code=401, detail="APP_PASSWORD not configured on server")
+        if not password:
+            raise HTTPException(status_code=401, detail="Missing X-App-Password header")
+        if password != APP_PASSWORD:
+            raise HTTPException(status_code=401, detail="Invalid password")
 
         return await call_next(request)
 

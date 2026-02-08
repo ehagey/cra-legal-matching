@@ -94,7 +94,7 @@ export function SourcePanel({ files, htmlLinks, onFilesChange, onLinksChange }: 
       });
 
       if (!response.ok) {
-        let errorMessage = "Failed to convert HTML to PDF";
+        let errorMessage = "Failed to scrape HTML";
         try {
           const errorData = await response.json();
           errorMessage = errorData.detail || errorMessage;
@@ -104,13 +104,12 @@ export function SourcePanel({ files, htmlLinks, onFilesChange, onLinksChange }: 
         throw new Error(errorMessage);
       }
 
-      const blob = await response.blob();
-      const blobUrl = URL.createObjectURL(blob);
-      setHtmlPreviewUrls((prev) => new Map(prev).set(index, blobUrl));
+      const text = await response.text();
+      setHtmlPreviewUrls((prev) => new Map(prev).set(index, text));
       setHtmlPreviewIndex(index);
     } catch (error) {
-      console.error("Error previewing HTML:", error);
-      const errorMessage = error instanceof Error ? error.message : "Failed to preview HTML. Make sure the URL is accessible.";
+      console.error("Error scraping HTML:", error);
+      const errorMessage = error instanceof Error ? error.message : "Failed to scrape HTML. Make sure the URL is accessible.";
       alert(errorMessage);
     } finally {
       setHtmlPreviewLoading((prev) => {
@@ -244,7 +243,7 @@ export function SourcePanel({ files, htmlLinks, onFilesChange, onLinksChange }: 
             className="font-mono text-sm"
           />
           <p className="text-xs text-muted-foreground">
-            One URL per line. These will be automatically converted to PDFs.
+            One URL per line. These will be automatically scraped with Jina AI.
           </p>
 
           {linkList.length > 0 && (
@@ -270,7 +269,7 @@ export function SourcePanel({ files, htmlLinks, onFilesChange, onLinksChange }: 
                           }
                         }}
                         disabled={htmlPreviewLoading.get(i) === true}
-                        title={htmlPreviewIndex === i ? "Hide preview" : "Preview as PDF"}
+                        title={htmlPreviewIndex === i ? "Hide preview" : "Preview scraped text"}
                       >
                         {htmlPreviewLoading.get(i) ? (
                           <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -284,10 +283,11 @@ export function SourcePanel({ files, htmlLinks, onFilesChange, onLinksChange }: 
                   </div>
                   {htmlPreviewIndex === i && htmlPreviewUrls.has(i) && (
                     <div className="rounded-md border bg-muted/20 p-2">
-                      <iframe
-                        src={htmlPreviewUrls.get(i)}
-                        className="h-[600px] w-full rounded border"
-                        title={`Preview of ${link}`}
+                      <textarea
+                        readOnly
+                        value={htmlPreviewUrls.get(i) || ""}
+                        className="h-[600px] w-full rounded border bg-background p-3 font-mono text-xs"
+                        title={`Scraped text from ${link}`}
                       />
                     </div>
                   )}

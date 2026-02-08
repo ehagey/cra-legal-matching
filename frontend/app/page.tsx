@@ -16,6 +16,8 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useAnalysis } from "@/hooks/use-analysis";
 import type { AnalysisResult } from "@/lib/types";
+import { exportResultsToCSV, downloadCSV } from "@/lib/csv-export";
+import { Download } from "lucide-react";
 
 export default function Home() {
   // --- Auth ---
@@ -158,7 +160,22 @@ export default function Home() {
         {/* Results */}
         {analysis.results.length > 0 && (
           <section className="space-y-6 animate-fade-in">
-            <h2 className="text-2xl font-semibold">Results</h2>
+            <div className="flex items-center justify-between">
+              <h2 className="text-2xl font-semibold">Results</h2>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  const csv = exportResultsToCSV(analysis.results);
+                  const timestamp = new Date().toISOString().split("T")[0];
+                  downloadCSV(csv, `legal-analysis-${timestamp}.csv`);
+                  toast.success("CSV downloaded successfully");
+                }}
+              >
+                <Download className="mr-2 h-4 w-4" />
+                Download CSV
+              </Button>
+            </div>
 
             {/* Matrix */}
             <ResultsMatrix results={analysis.results} />

@@ -65,25 +65,25 @@ async def health():
 @app.post("/api/preview-html")
 async def preview_html(html_link: str = Form(...)):
     """
-    Convert an HTML link to PDF for preview purposes.
-    Returns the PDF as a response.
+    Scrape HTML link with Jina AI and return the text content for preview.
+    Returns the text as a response.
     """
-    from services.html_service import process_html_link_async
+    from services.html_service import scrape_html_with_jina_async
 
     logger.info("Preview request for HTML link: %s", html_link)
     try:
-        success, result, pdf_bytes = await process_html_link_async(html_link)
+        success, text_content, display_name = await scrape_html_with_jina_async(html_link)
         if not success:
-            error_msg = result if isinstance(result, str) else "Failed to process HTML link"
+            error_msg = text_content if isinstance(text_content, str) else "Failed to scrape HTML link"
             logger.warning("Preview failed for %s: %s", html_link, error_msg)
             raise HTTPException(status_code=400, detail=error_msg)
 
         from fastapi.responses import Response
-        logger.info("Preview successful for %s, PDF size: %d bytes", html_link, len(pdf_bytes))
+        logger.info("Preview successful for %s, text length: %d chars", html_link, len(text_content))
         return Response(
-            content=pdf_bytes,
-            media_type="application/pdf",
-            headers={"Content-Disposition": f'inline; filename="{result}"'},
+            content=text_content,
+            media_type="text/plain",
+            headers={"Content-Disposition": f'inline; filename="{display_name}.txt"'},
         )
     except HTTPException:
         raise

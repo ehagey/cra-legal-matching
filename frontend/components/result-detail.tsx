@@ -10,7 +10,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 
 // ---- Single match card ----
 
-function MatchCard({ match, index }: { match: Match; index: number }) {
+function MatchCard({ match, index, isPdf }: { match: Match; index: number; isPdf: boolean }) {
   const [open, setOpen] = useState(false);
   const isIdentical = match.type === "IDENTICAL";
 
@@ -31,11 +31,13 @@ function MatchCard({ match, index }: { match: Match; index: number }) {
       <CollapsibleContent>
         <div className="space-y-4 rounded-b-lg border border-t-0 bg-background p-4">
           {/* Location */}
-          <div className="grid grid-cols-3 gap-3 text-sm">
-            <div>
-              <span className="text-xs text-muted-foreground">Page</span>
-              <p className="font-medium">{match.page}</p>
-            </div>
+          <div className={`grid gap-3 text-sm ${isPdf ? "grid-cols-3" : "grid-cols-2"}`}>
+            {isPdf && (
+              <div>
+                <span className="text-xs text-muted-foreground">Page</span>
+                <p className="font-medium">{match.page}</p>
+              </div>
+            )}
             <div>
               <span className="text-xs text-muted-foreground">Section</span>
               <p className="font-medium">{match.section}</p>
@@ -103,6 +105,9 @@ interface ResultDetailProps {
 export function ResultDetail({ result }: ResultDetailProps) {
   const [showAnalysis, setShowAnalysis] = useState(false);
   const isError = result.classification === "ERROR";
+  
+  // Check if result is from a PDF (not HTML link)
+  const isPdf = result.pdf_filename.toLowerCase().endsWith(".pdf") || !result.pdf_filename.startsWith("http");
 
   return (
     <Card className={isError ? "border-destructive/30" : ""}>
@@ -131,7 +136,7 @@ export function ResultDetail({ result }: ResultDetailProps) {
               {result.matches.length} match{result.matches.length !== 1 ? "es" : ""} found
             </p>
             {result.matches.map((match, idx) => (
-              <MatchCard key={idx} match={match} index={idx} />
+              <MatchCard key={idx} match={match} index={idx} isPdf={isPdf} />
             ))}
           </div>
         )}

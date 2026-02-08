@@ -15,6 +15,10 @@ PDF_ENGINE = "pdf-text"
 TEMPERATURE = 0
 MAX_TOKENS = 4000
 
+# Jina AI Configuration
+JINA_API_KEY = os.getenv("JINA_API_KEY", "")
+JINA_API_URL = "https://r.jina.ai"
+
 # Constraints
 MAX_PDF_SIZE_MB = 50
 

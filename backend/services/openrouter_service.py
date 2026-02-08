@@ -83,6 +83,95 @@ def _parse_json_response(content: str) -> Dict:
 # Single comparison
 # ---------------------------------------------------------------------------
 
+def compare_clause_with_text(
+    apple_clause: str,
+    text_content: str,
+    document_name: str,
+) -> Dict:
+    """
+    Compare a single Apple clause against text content (from HTML scraping).
+    
+    Returns dict with classification, summary, matches, analysis, error.
+    """
+    prompt = build_comparison_prompt(apple_clause, document_name, text_content=text_content)
+    
+    text_size_kb = len(text_content.encode("utf-8")) / 1024
+    logger.info("Processing: %s (%.2f KB text)", document_name, text_size_kb)
+    
+    headers = {
+        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://github.com/cra-legal-matching",
+        "X-Title": "Legal Clause Analyzer",
+    }
+    
+    payload = {
+        "model": MODEL_NAME,
+        "messages": [
+            {
+                "role": "user",
+                "content": prompt,
+            }
+        ],
+        "temperature": TEMPERATURE,
+        "max_tokens": MAX_TOKENS,
+    }
+    
+    try:
+        response = requests.post(
+            OPENROUTER_API_URL, headers=headers, json=payload, timeout=120
+        )
+        
+        if response.status_code != 200:
+            error_detail = ""
+            try:
+                err = response.json()
+                error_detail = err.get("error", {}).get("message", str(err))
+            except Exception:
+                error_detail = response.text[:500]
+            
+            return {
+                "classification": "ERROR",
+                "summary": f"API request failed: {response.status_code} {response.reason}",
+                "matches": [],
+                "analysis": f"Error from OpenRouter API: {error_detail}",
+                "error": f"{response.status_code}: {error_detail}",
+                "pdf_filename": document_name,
+                "apple_clause": apple_clause[:100] + ("…" if len(apple_clause) > 100 else ""),
+            }
+        
+        result = response.json()
+        content = result.get("choices", [{}])[0].get("message", {}).get("content", "")
+        parsed_result = _parse_json_response(content)
+        
+        parsed_result["pdf_filename"] = document_name
+        parsed_result["apple_clause"] = apple_clause[:100] + ("…" if len(apple_clause) > 100 else "")
+        return parsed_result
+        
+    except requests.exceptions.RequestException as e:
+        logger.exception("Request exception")
+        return {
+            "classification": "ERROR",
+            "summary": f"API request failed: {e}",
+            "matches": [],
+            "analysis": f"Error connecting to OpenRouter API: {e}",
+            "error": str(e),
+            "pdf_filename": document_name,
+            "apple_clause": apple_clause[:100] + ("…" if len(apple_clause) > 100 else ""),
+        }
+    except Exception as e:
+        logger.exception("Unexpected exception")
+        return {
+            "classification": "ERROR",
+            "summary": f"Unexpected error: {e}",
+            "matches": [],
+            "analysis": f"An unexpected error occurred: {e}",
+            "error": str(e),
+            "pdf_filename": document_name,
+            "apple_clause": apple_clause[:100] + ("…" if len(apple_clause) > 100 else ""),
+        }
+
+
 def compare_clause(
     apple_clause: str,
     pdf_data_url: str,
@@ -193,79 +282,109 @@ def batch_compare(
     job_id: Optional[str] = None,
 ) -> List[Dict]:
     """
-    Process clauses × PDFs.  Progress is written to job_store[job_id].
+    Process clauses × PDFs and HTML links.  Progress is written to job_store[job_id].
+    HTML links are scraped with Jina AI and compared as text.
     """
-    from services.html_service import process_html_link
+    from services.html_service import scrape_html_with_jina
 
     logger.info("[batch] START job=%s clauses=%d pdfs=%d links=%d",
                 job_id, len(apple_clauses), len(pdf_files), len(html_links or []))
 
     results: List[Dict] = []
 
-    # Convert HTML links (silently, no progress updates)
+    # Scrape HTML links with Jina AI (get text content)
+    html_texts: List[Tuple[str, str]] = []  # (display_name, text_content)
     if html_links:
-        _update_job(job_id, current_item="Preparing documents…")
-        for link in html_links:
-            logger.info("[batch] Converting HTML link: %s", link)
-            success, filename, pdf_bytes = process_html_link(link)
+        for idx, link in enumerate(html_links, 1):
+            display_name_short = link.split("/")[-1][:50] if "/" in link else link[:50]
+            _update_job(job_id, current_item=f"Scraping website {idx}/{len(html_links)}: {display_name_short}…")
+            logger.info("[batch] Scraping HTML link: %s", link)
+            success, text_content, display_name = scrape_html_with_jina(link)
             if success:
-                logger.info("[batch] Converted %s -> %s (%d bytes)", link, filename, len(pdf_bytes))
-                pdf_files.append((filename, pdf_bytes))
+                logger.info("[batch] Scraped %s -> %s (%d chars)", link, display_name, len(text_content))
+                html_texts.append((display_name, text_content))
+                _update_job(job_id, current_item=f"✓ Scraped: {display_name[:60]}")
             else:
-                logger.warning("[batch] Failed to convert %s: %s", link, filename)
+                logger.warning("[batch] Failed to scrape %s: %s", link, text_content)
+                _update_job(job_id, current_item=f"✗ Failed to scrape: {display_name_short}")
+                # Add error result for each clause
+                for clause in apple_clauses:
+                    err_result = {
+                        "classification": "ERROR",
+                        "summary": f"Failed to scrape HTML: {text_content}",
+                        "matches": [],
+                        "analysis": f"Could not scrape {link}: {text_content}",
+                        "error": text_content,
+                        "pdf_filename": link,
+                        "apple_clause": clause[:100] + ("…" if len(clause) > 100 else ""),
+                    }
+                    results.append(err_result)
+                    completed = len(results)
+                    _update_job(job_id, completed=completed, current_item=f"Error: {link}", results=list(results))
 
-    total_comparisons = len(apple_clauses) * len(pdf_files)
-    completed = 0
-    logger.info("[batch] Total comparisons to run: %d", total_comparisons)
-    _update_job(job_id, total=0, current_item="Preparing comparisons…")
+    # Calculate total comparisons: PDFs + HTML texts
+    total_comparisons = len(apple_clauses) * (len(pdf_files) + len(html_texts))
+    completed = len(results)  # Already have error results from failed scrapes
+    logger.info("[batch] Total comparisons to run: %d (PDFs: %d, HTML: %d)", 
+                total_comparisons, len(apple_clauses) * len(pdf_files), len(apple_clauses) * len(html_texts))
 
     # Pre-encode PDFs
     encoded_pdfs: Dict[str, str] = {}
-    for filename, pdf_bytes in pdf_files:
-        is_valid, error_msg = validate_pdf(pdf_bytes)
-        if not is_valid:
-            for clause in apple_clauses:
-                err_result = {
-                    "classification": "ERROR",
-                    "summary": f"PDF validation failed: {error_msg}",
-                    "matches": [],
-                    "analysis": f"Could not process {filename}: {error_msg}",
-                    "error": error_msg,
-                    "pdf_filename": filename,
-                    "apple_clause": clause[:100] + ("…" if len(clause) > 100 else ""),
-                }
-                results.append(err_result)
-                completed += 1
-                _update_job(job_id, completed=completed, current_item=f"Error: {filename}", results=list(results))
-            continue
+    if pdf_files:
+        for idx, (filename, pdf_bytes) in enumerate(pdf_files, 1):
+            filename_short = filename[:50] if len(filename) > 50 else filename
+            _update_job(job_id, total=0, current_item=f"Parsing PDF {idx}/{len(pdf_files)}: {filename_short}…")
+            
+            is_valid, error_msg = validate_pdf(pdf_bytes)
+            if not is_valid:
+                for clause in apple_clauses:
+                    err_result = {
+                        "classification": "ERROR",
+                        "summary": f"PDF validation failed: {error_msg}",
+                        "matches": [],
+                        "analysis": f"Could not process {filename}: {error_msg}",
+                        "error": error_msg,
+                        "pdf_filename": filename,
+                        "apple_clause": clause[:100] + ("…" if len(clause) > 100 else ""),
+                    }
+                    results.append(err_result)
+                    completed += 1
+                    _update_job(job_id, completed=completed, current_item=f"Error: {filename}", results=list(results))
+                continue
 
-        pdf_size_mb = len(pdf_bytes) / (1024 * 1024)
-        if pdf_size_mb > 20:
-            error_msg = f"PDF too large for API ({pdf_size_mb:.2f}MB, max 20MB)"
-            for clause in apple_clauses:
-                err_result = {
-                    "classification": "ERROR",
-                    "summary": f"PDF too large: {error_msg}",
-                    "matches": [],
-                    "analysis": f"Could not process {filename}: {error_msg}",
-                    "error": error_msg,
-                    "pdf_filename": filename,
-                    "apple_clause": clause[:100] + ("…" if len(clause) > 100 else ""),
-                }
-                results.append(err_result)
-                completed += 1
-                _update_job(job_id, completed=completed, current_item=f"Error: {filename}", results=list(results))
-            continue
+            pdf_size_mb = len(pdf_bytes) / (1024 * 1024)
+            if pdf_size_mb > 20:
+                error_msg = f"PDF too large for API ({pdf_size_mb:.2f}MB, max 20MB)"
+                for clause in apple_clauses:
+                    err_result = {
+                        "classification": "ERROR",
+                        "summary": f"PDF too large: {error_msg}",
+                        "matches": [],
+                        "analysis": f"Could not process {filename}: {error_msg}",
+                        "error": error_msg,
+                        "pdf_filename": filename,
+                        "apple_clause": clause[:100] + ("…" if len(clause) > 100 else ""),
+                    }
+                    results.append(err_result)
+                    completed += 1
+                    _update_job(job_id, completed=completed, current_item=f"Error: {filename}", results=list(results))
+                continue
 
-        encoded_pdfs[filename] = encode_pdf_to_base64(pdf_bytes)
+            encoded_pdfs[filename] = encode_pdf_to_base64(pdf_bytes)
+            _update_job(job_id, total=0, current_item=f"✓ Parsed: {filename_short}")
 
     # Build list of tasks for parallel execution
     tasks = []
+    # PDF tasks
     for clause_idx, apple_clause in enumerate(apple_clauses):
         for pdf_filename, _ in pdf_files:
             if pdf_filename not in encoded_pdfs:
                 continue
-            tasks.append((clause_idx, apple_clause, pdf_filename, encoded_pdfs[pdf_filename]))
+            tasks.append(("pdf", clause_idx, apple_clause, pdf_filename, encoded_pdfs[pdf_filename], None))
+    # HTML text tasks
+    for clause_idx, apple_clause in enumerate(apple_clauses):
+        for display_name, text_content in html_texts:
+            tasks.append(("html", clause_idx, apple_clause, display_name, None, text_content))
 
     if not tasks:
         logger.info("[batch] DONE job=%s (no valid comparisons)", job_id)
@@ -278,28 +397,43 @@ def batch_compare(
 
     lock = threading.Lock()
 
-    def _run_one(clause_idx: int, clause: str, pdf_filename: str, pdf_data_url: str) -> Dict:
-        label = f"Clause {clause_idx + 1} vs {pdf_filename}"
-        logger.info("[batch] Starting: %s", label)
-        result = compare_clause(clause, pdf_data_url, pdf_filename)
+    def _run_one(task_type: str, clause_idx: int, clause: str, doc_name: str, pdf_data_url: str = None, text_content: str = None) -> Dict:
+        nonlocal completed
+        clause_short = clause[:40] + "…" if len(clause) > 40 else clause
+        doc_short = doc_name[:40] + "…" if len(doc_name) > 40 else doc_name
+        label = f"Clause {clause_idx + 1} vs {doc_short}"
+        
+        # Update progress when starting
         with lock:
-            nonlocal completed
+            _update_job(job_id, completed=completed, current_item=f"Comparing: {clause_short} vs {doc_short}…", results=list(results))
+        
+        logger.info("[batch] Starting: %s", label)
+        
+        if task_type == "pdf":
+            result = compare_clause(clause, pdf_data_url, doc_name)
+        else:  # html
+            result = compare_clause_with_text(clause, text_content, doc_name)
+        
+        with lock:
             completed += 1
+            classification = result.get("classification", "UNKNOWN")
             logger.info("[batch] Finished: %s -> %s  (%d/%d)",
-                        label, result.get("classification"), completed, completed + len(tasks))
-            _update_job(job_id, completed=completed, current_item=label)
+                        label, classification, completed, total_comparisons)
+            results.append(result)
+            _update_job(job_id, completed=completed, current_item=f"✓ {classification}: Clause {clause_idx + 1} vs {doc_short}", results=list(results))
         return result
 
     max_workers = min(len(tasks), 5)
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         # Submit all tasks in order, collect results in clause order
         ordered_futures = [
-            executor.submit(_run_one, ci, c, fn, data)
-            for ci, c, fn, data in tasks
+            executor.submit(_run_one, tt, ci, c, fn, pdf_data, text_data)
+            for tt, ci, c, fn, pdf_data, text_data in tasks
         ]
         # Wait for all and collect in original order (clause 1 first)
+        # Results are already appended in _run_one, so we just need to wait
         for future in ordered_futures:
-            results.append(future.result())
+            future.result()  # Wait for completion (result already added to list)
 
     logger.info("[batch] DONE job=%s total_results=%d", job_id, len(results))
     _update_job(job_id, done=True, completed=completed, results=list(results))
