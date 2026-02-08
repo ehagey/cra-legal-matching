@@ -22,10 +22,35 @@ import { Download } from "lucide-react";
 export default function Home() {
   // --- Auth ---
   const [authenticated, setAuthenticated] = useState(false);
+  const [checkingAuth, setCheckingAuth] = useState(true);
 
   useEffect(() => {
+    // Verify stored password is still valid on app load
     const saved = localStorage.getItem("app_password");
-    if (saved) setAuthenticated(true);
+    if (saved) {
+      import("@/lib/api").then(({ validatePassword }) => {
+        validatePassword(saved)
+          .then((isValid) => {
+            if (!isValid) {
+              // Password is invalid, clear it and require re-auth
+              localStorage.removeItem("app_password");
+              setAuthenticated(false);
+            } else {
+              setAuthenticated(true);
+            }
+          })
+          .catch(() => {
+            // On error, clear password and require re-auth
+            localStorage.removeItem("app_password");
+            setAuthenticated(false);
+          })
+          .finally(() => {
+            setCheckingAuth(false);
+          });
+      });
+    } else {
+      setCheckingAuth(false);
+    }
   }, []);
 
   const handleLogout = () => {
@@ -50,8 +75,10 @@ export default function Home() {
       toast.error(analysis.error);
     }
     if (analysis.error === "AUTH_REQUIRED") {
-      setAuthenticated(false);
+      // Password is invalid, clear it and force re-authentication
       localStorage.removeItem("app_password");
+      setAuthenticated(false);
+      toast.error("Authentication failed. Please log in again.");
     }
   }, [analysis.loading, analysis.results.length, analysis.error]);
 
@@ -114,6 +141,17 @@ export default function Home() {
   const clauseKeys = Object.keys(clauseGroups);
 
   // --- Render ---
+  if (checkingAuth) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <div className="text-center">
+          <div className="mx-auto mb-4 h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+          <p className="text-sm text-muted-foreground">Verifying access...</p>
+        </div>
+      </div>
+    );
+  }
+
   if (!authenticated) {
     return <AuthGate onAuthenticated={() => setAuthenticated(true)} />;
   }

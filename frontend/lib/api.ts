@@ -22,18 +22,30 @@ export async function checkHealth(): Promise<HealthResponse> {
 
 export async function validatePassword(password: string): Promise<boolean> {
   try {
-    const res = await fetch(`${BASE}/api/health`, {
-      headers: { "X-App-Password": password },
-    });
-    // Health endpoint is open, so we use analyze with empty body to check auth
+    // Test against a protected endpoint to verify password
+    // Use analyze endpoint with minimal valid data to test auth
+    const formData = new FormData();
+    formData.append("clauses", JSON.stringify(["test"]));
+    formData.append("html_links", JSON.stringify([]));
+    
     const authRes = await fetch(`${BASE}/api/analyze`, {
       method: "POST",
       headers: { "X-App-Password": password },
-      body: new FormData(), // will fail validation but auth should pass
+      body: formData,
     });
-    // 401 = bad password, 400 = bad input (password is fine)
-    return authRes.status !== 401;
-  } catch {
+    
+    // 401 = bad password (auth failed)
+    // 400 = bad input but auth passed (password is valid)
+    // 200 = success (password is valid)
+    if (authRes.status === 401) {
+      return false;
+    }
+    // If we get 400, it means auth passed but validation failed (which is fine for password check)
+    // If we get 200, auth passed and request was valid
+    return authRes.status === 400 || authRes.status === 200;
+  } catch (error) {
+    // Network error or other issues
+    console.error("Password validation error:", error);
     return false;
   }
 }
