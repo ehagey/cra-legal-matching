@@ -11,13 +11,14 @@ import { SourcePanel } from "@/components/source-panel";
 import { ProgressOverlay } from "@/components/progress-overlay";
 import { ResultsMatrix } from "@/components/results-matrix";
 import { ResultDetail } from "@/components/result-detail";
+import { PromptEditor } from "@/components/prompt-editor";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useAnalysis } from "@/hooks/use-analysis";
 import type { AnalysisResult } from "@/lib/types";
 import { exportResultsToCSV, downloadCSV } from "@/lib/csv-export";
-import { Download } from "lucide-react";
+import { Download, Settings } from "lucide-react";
 
 export default function Home() {
   // --- Auth ---
@@ -62,6 +63,10 @@ export default function Home() {
   const [clauses, setClauses] = useState<string[]>([""]);
   const [files, setFiles] = useState<File[]>([]);
   const [htmlLinks, setHtmlLinks] = useState("");
+  
+  // --- Custom Prompts ---
+  const [customPrompts, setCustomPrompts] = useState<{ pdf: string; text: string }>({ pdf: "", text: "" });
+  const [showPromptEditor, setShowPromptEditor] = useState(false);
 
   // --- Analysis ---
   const analysis = useAnalysis();
@@ -108,7 +113,7 @@ export default function Home() {
       toast.error("Upload at least one PDF or provide an HTML link.");
       return;
     }
-    analysis.run(nonEmpty, linkList, files);
+    analysis.run(nonEmpty, linkList, files, customPrompts.pdf || undefined, customPrompts.text || undefined);
   };
 
   // --- Filtering ---
@@ -170,6 +175,25 @@ export default function Home() {
       )}
 
       <main className="container mx-auto space-y-8 px-4 py-8">
+        {/* Prompt Editor Toggle */}
+        <div className="flex justify-end">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowPromptEditor(!showPromptEditor)}
+          >
+            <Settings className="h-4 w-4 mr-2" />
+            {showPromptEditor ? "Hide" : "Show"} Prompt Editor
+          </Button>
+        </div>
+
+        {/* Prompt Editor */}
+        {showPromptEditor && (
+          <PromptEditor
+            onPromptChange={(pdf, text) => setCustomPrompts({ pdf, text })}
+          />
+        )}
+
         {/* Inputs */}
         <div className="grid gap-6 lg:grid-cols-2">
           <ClauseEditor clauses={clauses} onChange={setClauses} />

@@ -87,13 +87,14 @@ def compare_clause_with_text(
     apple_clause: str,
     text_content: str,
     document_name: str,
+    custom_prompt: str = None,
 ) -> Dict:
     """
     Compare a single Apple clause against text content (from HTML scraping).
     
     Returns dict with classification, summary, matches, analysis, error.
     """
-    prompt = build_comparison_prompt(apple_clause, document_name, text_content=text_content)
+    prompt = build_comparison_prompt(apple_clause, document_name, text_content=text_content, custom_prompt=custom_prompt)
     
     text_size_kb = len(text_content.encode("utf-8")) / 1024
     logger.info("Processing: %s (%.2f KB text)", document_name, text_size_kb)
@@ -176,13 +177,14 @@ def compare_clause(
     apple_clause: str,
     pdf_data_url: str,
     pdf_filename: str,
+    custom_prompt: str = None,
 ) -> Dict:
     """
     Compare a single Apple clause against one PDF document.
 
     Returns dict with classification, summary, matches, analysis, usage, error.
     """
-    prompt = build_comparison_prompt(apple_clause, pdf_filename)
+    prompt = build_comparison_prompt(apple_clause, pdf_filename, custom_prompt=custom_prompt)
 
     pdf_size_mb = len(pdf_data_url.encode("utf-8")) / (1024 * 1024)
     logger.info("Processing: %s (%.2f MB data URL)", pdf_filename, pdf_size_mb)
@@ -280,6 +282,8 @@ def batch_compare(
     pdf_files: List[Tuple[str, bytes]],
     html_links: Optional[List[str]] = None,
     job_id: Optional[str] = None,
+    custom_prompt_pdf: Optional[str] = None,
+    custom_prompt_text: Optional[str] = None,
 ) -> List[Dict]:
     """
     Process clauses × PDFs and HTML links.  Progress is written to job_store[job_id].
@@ -410,9 +414,9 @@ def batch_compare(
         logger.info("[batch] Starting: %s", label)
         
         if task_type == "pdf":
-            result = compare_clause(clause, pdf_data_url, doc_name)
+            result = compare_clause(clause, pdf_data_url, doc_name, custom_prompt=custom_prompt_pdf)
         else:  # html
-            result = compare_clause_with_text(clause, text_content, doc_name)
+            result = compare_clause_with_text(clause, text_content, doc_name, custom_prompt=custom_prompt_text)
         
         with lock:
             completed += 1

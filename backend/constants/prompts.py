@@ -1,7 +1,7 @@
 """Prompt templates for LLM analysis."""
 
 
-def build_comparison_prompt(apple_clause: str, pdf_filename: str, text_content: str = None) -> str:
+def build_comparison_prompt(apple_clause: str, pdf_filename: str, text_content: str = None, custom_prompt: str = None) -> str:
     """
     Build the prompt for comparing an Apple clause against a competitor agreement.
 
@@ -9,10 +9,34 @@ def build_comparison_prompt(apple_clause: str, pdf_filename: str, text_content: 
         apple_clause: The Apple developer agreement clause text
         pdf_filename: Name of the document being analyzed
         text_content: Optional text content (if provided, used instead of PDF)
+        custom_prompt: Optional custom prompt template (overrides default)
 
     Returns:
         Formatted prompt string
     """
+    # Use custom prompt if provided (from request)
+    if custom_prompt:
+        # Replace placeholders in custom prompt
+        prompt = custom_prompt.replace("{apple_clause}", apple_clause).replace("{pdf_filename}", pdf_filename)
+        if text_content:
+            prompt = prompt.replace("{text_content}", text_content)
+        return prompt
+    
+    # Check for saved custom prompts (from file)
+    try:
+        from prompt_store import get_custom_prompt
+        custom = get_custom_prompt()
+        if custom:
+            if text_content and custom.get("text"):
+                template = custom["text"]
+                return template.replace("{apple_clause}", apple_clause).replace("{pdf_filename}", pdf_filename).replace("{text_content}", text_content)
+            elif not text_content and custom.get("pdf"):
+                template = custom["pdf"]
+                return template.replace("{apple_clause}", apple_clause).replace("{pdf_filename}", pdf_filename)
+    except ImportError:
+        pass  # prompt_store not available, use defaults
+    
+    # Use default prompts
     if text_content:
         # Use text content directly in prompt
         return f"""You are a legal analyst comparing developer agreement clauses. Your task is to analyze the following document text ("{pdf_filename}") and find ALL clauses that match or relate to the following Apple Developer Agreement clause.

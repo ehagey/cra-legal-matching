@@ -55,11 +55,19 @@ export async function validatePassword(password: string): Promise<boolean> {
 export async function startAnalysis(
   clauses: string[],
   htmlLinks: string[],
-  files: File[]
+  files: File[],
+  customPromptPdf?: string,
+  customPromptText?: string
 ): Promise<AnalyzeResponse> {
   const formData = new FormData();
   formData.append("clauses", JSON.stringify(clauses));
   formData.append("html_links", JSON.stringify(htmlLinks));
+  if (customPromptPdf) {
+    formData.append("custom_prompt_pdf", customPromptPdf);
+  }
+  if (customPromptText) {
+    formData.append("custom_prompt_text", customPromptText);
+  }
   for (const file of files) {
     formData.append("files", file);
   }

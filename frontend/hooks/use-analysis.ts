@@ -25,7 +25,7 @@ export function useAnalysis() {
 
   const unsubRef = useRef<(() => void) | null>(null);
 
-  const run = useCallback(async (clauses: string[], htmlLinks: string[], files: File[]) => {
+  const run = useCallback(async (clauses: string[], htmlLinks: string[], files: File[], customPromptPdf?: string, customPromptText?: string) => {
     // Reset
     setState({
       loading: true,
@@ -37,7 +37,7 @@ export function useAnalysis() {
     });
 
     try {
-      const { job_id } = await startAnalysis(clauses, htmlLinks, files);
+      const { job_id } = await startAnalysis(clauses, htmlLinks, files, customPromptPdf, customPromptText);
 
       // Subscribe to SSE
       unsubRef.current = subscribeProgress(
