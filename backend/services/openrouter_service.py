@@ -418,6 +418,10 @@ def batch_compare(
         else:  # html
             result = compare_clause_with_text(clause, text_content, doc_name, custom_prompt=custom_prompt_text)
         
+        # Store full clause text and clause index for ordering
+        result["apple_clause"] = clause  # Full clause, not truncated
+        result["_clause_idx"] = clause_idx  # For ordering
+        
         with lock:
             completed += 1
             classification = result.get("classification", "UNKNOWN")

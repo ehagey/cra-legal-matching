@@ -7,23 +7,41 @@ import type { AnalysisResult } from "./types";
 export function exportResultsToExcel(results: AnalysisResult[]): XLSX.WorkBook {
   const workbook = XLSX.utils.book_new();
 
-  // Group results by clause
+  // Group results by clause and preserve order
   const clauseGroups: Record<string, AnalysisResult[]> = {};
+  const clauseOrder: string[] = []; // Track order of first appearance
+  const clauseIndices: Record<string, number> = {}; // Track clause index for ordering
+  
   for (const result of results) {
     const clause = result.apple_clause;
+    // Track clause order based on first appearance
     if (!clauseGroups[clause]) {
       clauseGroups[clause] = [];
+      clauseOrder.push(clause);
+      // Try to get clause index from result if available (for ordering)
+      const clauseIdx = (result as any)._clause_idx;
+      if (clauseIdx !== undefined) {
+        clauseIndices[clause] = clauseIdx;
+      }
     }
     clauseGroups[clause].push(result);
   }
+  
+  // Sort clauses by their original index if available, otherwise by first appearance
+  const sortedClauses = [...clauseOrder].sort((a, b) => {
+    const idxA = clauseIndices[a] ?? clauseOrder.indexOf(a);
+    const idxB = clauseIndices[b] ?? clauseOrder.indexOf(b);
+    return idxA - idxB;
+  });
 
   // Helper to check if result is from a PDF (not HTML link)
   const isPdf = (filename: string): boolean => {
     return filename.toLowerCase().endsWith(".pdf") || !filename.startsWith("http");
   };
 
-  // Create one sheet per clause
-  for (const [clause, clauseResults] of Object.entries(clauseGroups)) {
+  // Create one sheet per clause in original order
+  for (const clause of sortedClauses) {
+    const clauseResults = clauseGroups[clause];
     const rows: any[] = [];
 
     // Header row
@@ -123,15 +141,52 @@ export function exportResultsToExcel(results: AnalysisResult[]): XLSX.WorkBook {
     worksheet["!cols"] = colWidths;
 
     // Create sheet name from clause (Excel sheet names are limited to 31 chars)
-    let sheetName = clause.substring(0, 31);
+    // Use clause index + shortened text for better naming
+    const clauseIdx = clauseIndices[clause] ?? sortedClauses.indexOf(clause);
+    const clauseNum = clauseIdx + 1;
+    
+    // Try to create a meaningful name
+    let sheetName = (clause || "").trim();
+    if (!sheetName || sheetName.length === 0 || sheetName === "…") {
+      // Fallback to numbered name if clause is empty or just truncation marker
+      sheetName = `Clause ${clauseNum}`;
+    } else {
+      // Remove truncation marker if present
+      if (sheetName.endsWith("…")) {
+        sheetName = sheetName.slice(0, -1);
+      }
+      // Take first line or first 20 chars, then add clause number
+      const firstLine = sheetName.split('\n')[0].split('\r')[0].trim();
+      const shortText = firstLine.length > 20 ? firstLine.substring(0, 20) : firstLine;
+      if (shortText.length > 0) {
+        sheetName = `Clause ${clauseNum}: ${shortText}`;
+      } else {
+        sheetName = `Clause ${clauseNum}`;
+      }
+    }
+    
     // Excel doesn't allow certain characters in sheet names
-    sheetName = sheetName.replace(/[\\/?*\[\]]/g, "_");
+    sheetName = sheetName.replace(/[\\/?*\[\]:]/g, "_");
+    
+    // Truncate to 31 chars (Excel limit)
+    if (sheetName.length > 31) {
+      sheetName = sheetName.substring(0, 31);
+    }
+    
+    // Ensure we have a valid name (not empty)
+    if (!sheetName || sheetName.trim().length === 0) {
+      sheetName = `Clause ${clauseNum}`;
+    }
+    
     // Ensure unique sheet names
-    let finalSheetName = sheetName;
+    let finalSheetName = sheetName.trim();
     let counter = 1;
     while (workbook.SheetNames.includes(finalSheetName)) {
-      finalSheetName = `${sheetName.substring(0, 28)}_${counter}`;
+      const baseName = sheetName.length > 25 ? sheetName.substring(0, 25) : sheetName;
+      finalSheetName = `${baseName}_${counter}`;
       counter++;
+      // Safety check to prevent infinite loop
+      if (counter > 100) break;
     }
 
     // Add worksheet to workbook
