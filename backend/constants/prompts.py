@@ -39,7 +39,7 @@ def build_comparison_prompt(apple_clause: str, pdf_filename: str, text_content: 
     # Use default prompts
     if text_content:
         # Use text content directly in prompt
-        return """You are a legal analyst comparing developer agreement clauses. Your task is to analyze the following document text ("{pdf_filename}") and find ALL clauses that match or relate to the following Apple Developer Agreement clause.
+        template = """You are a legal analyst comparing developer agreement clauses. Your task is to analyze the following document text ("{pdf_filename}") and find ALL clauses that match or relate to the following Apple Developer Agreement clause.
 
 DOCUMENT TEXT TO ANALYZE:
 {text_content}
@@ -105,11 +105,11 @@ IMPORTANT:
 - For IDENTICAL matches, differences array should be empty
 - Section and paragraph numbers must match what's in the document
 - Full quoted text must be EXACT verbatim copies from the document — preserve the original capitalization, punctuation, and formatting exactly as written. Do NOT convert text to uppercase, title case, or any other case that differs from the source document.
-- In the "differences" table, the "apple" and "theirs" values must also preserve original casing exactly as they appear in each respective document
-"""
+- In the "differences" table, the "apple" and "theirs" values must also preserve original casing exactly as they appear in each respective document"""
+        return template.replace("{apple_clause}", apple_clause).replace("{pdf_filename}", pdf_filename).replace("{text_content}", text_content)
     
     # Original PDF-based prompt
-    return """You are a legal analyst comparing developer agreement clauses. Your task is to analyze the attached PDF document ("{pdf_filename}") and find ALL clauses that match or relate to the following Apple Developer Agreement clause.
+    template = """You are a legal analyst comparing developer agreement clauses. Your task is to analyze the attached PDF document ("{pdf_filename}") and find ALL clauses that match or relate to the following Apple Developer Agreement clause.
 
 APPLE CLAUSE TO FIND:
 {apple_clause}
@@ -174,6 +174,6 @@ IMPORTANT:
 - Page numbers must be accurate - cite the exact page where text appears
 - Section and paragraph numbers must match what's in the document
 - Full quoted text must be EXACT verbatim copies from the document — preserve the original capitalization, punctuation, and formatting exactly as written. Do NOT convert text to uppercase, title case, or any other case that differs from the source document.
-- In the "differences" table, the "apple" and "theirs" values must also preserve original casing exactly as they appear in each respective document
-"""
+- In the "differences" table, the "apple" and "theirs" values must also preserve original casing exactly as they appear in each respective document"""
+    return template.replace("{apple_clause}", apple_clause).replace("{pdf_filename}", pdf_filename)
 
