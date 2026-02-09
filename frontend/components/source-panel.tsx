@@ -243,7 +243,7 @@ export function SourcePanel({ files, htmlLinks, onFilesChange, onLinksChange }: 
             className="font-mono text-sm"
           />
           <p className="text-xs text-muted-foreground">
-            One URL per line. These will be automatically scraped with Jina AI.
+            One URL per line. These will be automatically scraped.
           </p>
 
           {linkList.length > 0 && (

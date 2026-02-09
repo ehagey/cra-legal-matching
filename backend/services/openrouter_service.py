@@ -427,21 +427,23 @@ def batch_compare(
             classification = result.get("classification", "UNKNOWN")
             logger.info("[batch] Finished: %s -> %s  (%d/%d)",
                         label, classification, completed, total_comparisons)
-            results.append(result)
+            # Don't append here - we'll collect in order from futures
             _update_job(job_id, completed=completed, current_item=f"✓ {classification}: Clause {clause_idx + 1} vs {doc_short}", results=list(results))
         return result
 
     max_workers = min(len(tasks), 5)
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        # Submit all tasks in order, collect results in clause order
+        # Submit all tasks in order
         ordered_futures = [
             executor.submit(_run_one, tt, ci, c, fn, pdf_data, text_data)
             for tt, ci, c, fn, pdf_data, text_data in tasks
         ]
-        # Wait for all and collect in original order (clause 1 first)
-        # Results are already appended in _run_one, so we just need to wait
+        # Collect results in submission order (preserves clause order)
         for future in ordered_futures:
-            future.result()  # Wait for completion (result already added to list)
+            result = future.result()  # Wait for completion and get result
+            results.append(result)  # Append in order
+            # Update job store with ordered results
+            _update_job(job_id, results=list(results))
 
     logger.info("[batch] DONE job=%s total_results=%d", job_id, len(results))
     _update_job(job_id, done=True, completed=completed, results=list(results))
