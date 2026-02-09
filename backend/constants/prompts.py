@@ -57,18 +57,18 @@ INSTRUCTIONS:
    - Section title/heading
    - Full quoted text of the matching clause
 
-4. Classify each match as:
+5. Classify each match as:
    - IDENTICAL: Same legal effect, wording may differ slightly but meaning is equivalent
    - SIMILAR: Related clause with meaningful differences that could affect legal interpretation
    - NOT_PRESENT: No comparable clause exists in this document
 
-5. For SIMILAR matches, provide a side-by-side comparison of key differences:
+6. For SIMILAR matches, provide a side-by-side comparison of key differences:
    - What aspect differs (e.g., "termination notice period", "liability cap", "jurisdiction")
    - Apple's version
    - Their version
    - Legal note explaining the significance of the difference
 
-6. Provide an overall classification for the document:
+7. Provide an overall classification for the document:
    - IDENTICAL: At least one match is IDENTICAL
    - SIMILAR: Only SIMILAR matches found, no IDENTICAL
    - NOT_PRESENT: No comparable clauses found
@@ -126,18 +126,18 @@ INSTRUCTIONS:
    - Section title/heading
    - Full quoted text of the matching clause
 
-4. Classify each match as:
+5. Classify each match as:
    - IDENTICAL: Same legal effect, wording may differ slightly but meaning is equivalent
    - SIMILAR: Related clause with meaningful differences that could affect legal interpretation
    - NOT_PRESENT: No comparable clause exists in this document
 
-5. For SIMILAR matches, provide a side-by-side comparison of key differences:
+6. For SIMILAR matches, provide a side-by-side comparison of key differences:
    - What aspect differs (e.g., "termination notice period", "liability cap", "jurisdiction")
    - Apple's version
    - Their version
    - Legal note explaining the significance of the difference
 
-6. Provide an overall classification for the document:
+7. Provide an overall classification for the document:
    - IDENTICAL: At least one match is IDENTICAL
    - SIMILAR: Only SIMILAR matches found, no IDENTICAL
    - NOT_PRESENT: No comparable clauses found
