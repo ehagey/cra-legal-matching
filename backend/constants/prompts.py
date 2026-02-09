@@ -39,7 +39,7 @@ def build_comparison_prompt(apple_clause: str, pdf_filename: str, text_content: 
     # Use default prompts
     if text_content:
         # Use text content directly in prompt
-        return f"""You are a legal analyst comparing developer agreement clauses. Your task is to analyze the following document text ("{pdf_filename}") and find ALL clauses that match or relate to the following Apple Developer Agreement clause.
+        return """You are a legal analyst comparing developer agreement clauses. Your task is to analyze the following document text ("{pdf_filename}") and find ALL clauses that match or relate to the following Apple Developer Agreement clause.
 
 DOCUMENT TEXT TO ANALYZE:
 {text_content}
@@ -109,7 +109,7 @@ IMPORTANT:
 """
     
     # Original PDF-based prompt
-    return f"""You are a legal analyst comparing developer agreement clauses. Your task is to analyze the attached PDF document ("{pdf_filename}") and find ALL clauses that match or relate to the following Apple Developer Agreement clause.
+    return """You are a legal analyst comparing developer agreement clauses. Your task is to analyze the attached PDF document ("{pdf_filename}") and find ALL clauses that match or relate to the following Apple Developer Agreement clause.
 
 APPLE CLAUSE TO FIND:
 {apple_clause}
