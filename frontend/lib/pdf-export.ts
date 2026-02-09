@@ -1,8 +1,9 @@
 import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 import type { AnalysisResult } from "./types";
 
 /**
- * Convert analysis results to PDF format with one section per clause.
+ * Convert analysis results to PDF format matching the UI presentation.
  */
 export function exportResultsToPDF(results: AnalysisResult[]): jsPDF {
   const doc = new jsPDF();
@@ -30,12 +31,16 @@ export function exportResultsToPDF(results: AnalysisResult[]): jsPDF {
   };
 
   // Helper to add text with word wrapping
-  const addWrappedText = (text: string, fontSize: number, isBold: boolean = false) => {
+  const addWrappedText = (text: string, fontSize: number, isBold: boolean = false, color?: [number, number, number]) => {
     doc.setFontSize(fontSize);
     if (isBold) {
       doc.setFont(undefined, "bold");
     } else {
       doc.setFont(undefined, "normal");
+    }
+    
+    if (color) {
+      doc.setTextColor(color[0], color[1], color[2]);
     }
     
     const maxWidth = pageWidth - 2 * margin;
@@ -47,6 +52,7 @@ export function exportResultsToPDF(results: AnalysisResult[]): jsPDF {
       yPos += fontSize * 0.4;
     });
     
+    doc.setTextColor(0, 0, 0);
     yPos += 3;
   };
 
@@ -111,119 +117,199 @@ export function exportResultsToPDF(results: AnalysisResult[]): jsPDF {
 
     // Process each result for this clause
     for (const result of clauseResults) {
-      checkPageBreak(40);
+      checkPageBreak(50);
 
-      // Document name
+      // Document name (like UI)
       doc.setFontSize(10);
       doc.setFont(undefined, "bold");
       doc.text(result.pdf_filename, margin, yPos);
       yPos += 7;
 
-      // Classification and summary
-      doc.setFontSize(9);
-      doc.setFont(undefined, "normal");
-      doc.text(`Classification: ${formatClassification(result.classification)}`, margin, yPos);
-      yPos += 6;
-      
+      // Summary (like UI)
       if (result.summary) {
+        doc.setFontSize(9);
+        doc.setFont(undefined, "normal");
+        doc.setTextColor(100, 100, 100);
         addWrappedText(result.summary, 9);
-        yPos += 3;
+        doc.setTextColor(0, 0, 0);
+        yPos += 5;
       }
 
-      // Matches
+      // Classification badge (like UI)
+      doc.setFontSize(9);
+      doc.setFont(undefined, "bold");
+      const classificationText = formatClassification(result.classification);
+      doc.text(classificationText, margin, yPos);
+      yPos += 8;
+
+      // Error display
+      if (result.classification === "ERROR" && result.error) {
+        doc.setFontSize(8);
+        doc.setFont(undefined, "normal");
+        doc.setTextColor(200, 0, 0);
+        addWrappedText(result.error, 8);
+        doc.setTextColor(0, 0, 0);
+        yPos += 5;
+      }
+
+      // Matches section (like UI)
       if (result.matches && result.matches.length > 0) {
         doc.setFontSize(9);
         doc.setFont(undefined, "normal");
         doc.text(`${result.matches.length} match${result.matches.length !== 1 ? "es" : ""} found`, margin, yPos);
-        yPos += 8;
+        yPos += 10;
 
         result.matches.forEach((match, idx) => {
-          checkPageBreak(50);
+          checkPageBreak(80);
 
+          // Match header (like UI: "Match 1 - SIMILAR")
           doc.setFontSize(9);
           doc.setFont(undefined, "bold");
-          doc.text(`Match ${idx + 1} - ${match.type}`, margin, yPos);
-          yPos += 7;
+          doc.text(`Match ${idx + 1}`, margin, yPos);
+          doc.setFont(undefined, "normal");
+          doc.text(` - ${match.type}`, margin + 25, yPos);
+          yPos += 8;
 
-          // Location info
+          // Location info (like UI: Page, Section, Paragraph)
           doc.setFontSize(8);
           doc.setFont(undefined, "normal");
+          doc.setTextColor(100, 100, 100);
           const isPdfResult = isPdf(result.pdf_filename);
-          const locationParts: string[] = [];
-          if (isPdfResult && match.page) locationParts.push(`Page ${match.page}`);
-          if (match.section) locationParts.push(`Section ${match.section}`);
-          if (match.paragraph) locationParts.push(`Paragraph ${match.paragraph}`);
-          if (locationParts.length > 0) {
-            doc.text(locationParts.join(" · "), margin, yPos);
-            yPos += 5;
+          
+          const locationData: string[][] = [];
+          if (isPdfResult && match.page) {
+            locationData.push(["Page", match.page.toString()]);
+          }
+          if (match.section) {
+            locationData.push(["Section", match.section]);
+          }
+          if (match.paragraph) {
+            locationData.push(["Paragraph", match.paragraph.toString()]);
+          }
+          
+          if (locationData.length > 0) {
+            autoTable(doc, {
+              startY: yPos,
+              body: locationData,
+              theme: "plain",
+              bodyStyles: {
+                fontSize: 8,
+                textColor: [100, 100, 100]
+              },
+              columnStyles: {
+                0: { cellWidth: 40, fontStyle: "normal" },
+                1: { cellWidth: 60, fontStyle: "normal" }
+              },
+              margin: { left: margin, right: margin },
+              tableWidth: 100,
+              styles: {
+                lineColor: [255, 255, 255],
+                lineWidth: 0
+              }
+            });
+            yPos = (doc as any).lastAutoTable.finalY + 5;
           }
           
           if (match.section_title) {
             doc.text(match.section_title, margin, yPos);
             yPos += 5;
           }
+          doc.setTextColor(0, 0, 0);
 
-          // Quoted text
+          // Quoted Text (like UI - in a box)
           if (match.full_text) {
             doc.setFontSize(8);
+            doc.setFont(undefined, "bold");
+            doc.text("Quoted Text", margin, yPos);
+            yPos += 6;
+            
             doc.setFont(undefined, "normal");
             doc.setDrawColor(220, 220, 220);
-            doc.setLineWidth(0.3);
+            doc.setLineWidth(0.5);
             const textLines = doc.splitTextToSize(match.full_text, pageWidth - 2 * margin - 10);
-            const textBoxHeight = textLines.length * 4 + 6;
+            const textBoxHeight = textLines.length * 4 + 8;
             doc.rect(margin, yPos, pageWidth - 2 * margin, textBoxHeight);
-            doc.setTextColor(60, 60, 60);
+            doc.setTextColor(40, 40, 40);
             textLines.forEach((line: string, lineIdx: number) => {
-              doc.text(line, margin + 3, yPos + 4 + lineIdx * 4);
+              doc.text(line, margin + 5, yPos + 5 + lineIdx * 4);
             });
             doc.setTextColor(0, 0, 0);
-            yPos += textBoxHeight + 6;
+            yPos += textBoxHeight + 8;
           }
 
-          // Differences
+          // Key Differences table (like UI - Aspect | Apple | Theirs)
           if (match.differences && match.differences.length > 0) {
             doc.setFontSize(8);
-            doc.setFont(undefined, "normal");
-            match.differences.forEach((diff) => {
-              const diffText = `${diff.aspect}: Apple="${diff.apple}" vs Their="${diff.theirs}"`;
-              addWrappedText(diffText, 8);
-              yPos += 2;
+            doc.setFont(undefined, "bold");
+            doc.text("Key Differences", margin, yPos);
+            yPos += 6;
+
+            const diffData = match.differences.map((diff) => [
+              diff.aspect || "N/A",
+              diff.apple || "N/A",
+              diff.theirs || "N/A"
+            ]);
+
+            autoTable(doc, {
+              startY: yPos,
+              head: [["Aspect", "Apple", "Theirs"]],
+              body: diffData,
+              theme: "striped",
+              headStyles: {
+                fillColor: [250, 250, 250],
+                textColor: [0, 0, 0],
+                fontStyle: "bold",
+                fontSize: 8,
+                lineColor: [220, 220, 220],
+                lineWidth: 0.5
+              },
+              bodyStyles: {
+                fontSize: 8,
+                textColor: [0, 0, 0],
+                lineColor: [240, 240, 240],
+                lineWidth: 0.3
+              },
+              columnStyles: {
+                0: { cellWidth: 50, fontStyle: "normal" },
+                1: { cellWidth: 70, fontStyle: "normal" },
+                2: { cellWidth: 70, fontStyle: "normal" }
+              },
+              margin: { left: margin, right: margin },
+              styles: {
+                lineColor: [220, 220, 220],
+                lineWidth: 0.5
+              }
             });
+
+            yPos = (doc as any).lastAutoTable.finalY + 8;
           }
 
-          // Legal note
+          // Legal note (like UI)
           if (match.legal_note) {
             doc.setFontSize(8);
             doc.setFont(undefined, "normal");
             doc.setTextColor(100, 100, 100);
-            addWrappedText(`Note: ${match.legal_note}`, 8);
+            addWrappedText(match.legal_note, 8);
             doc.setTextColor(0, 0, 0);
-            yPos += 2;
+            yPos += 5;
           }
 
-          yPos += 5;
+          yPos += 8;
         });
       }
 
-      // Overall analysis
+      // Overall analysis (like UI - collapsible section)
       if (result.analysis) {
         checkPageBreak(30);
         doc.setFontSize(8);
+        doc.setFont(undefined, "bold");
+        doc.text("Full Analysis", margin, yPos);
+        yPos += 6;
         doc.setFont(undefined, "normal");
         doc.setTextColor(100, 100, 100);
         addWrappedText(result.analysis, 8);
         doc.setTextColor(0, 0, 0);
-        yPos += 5;
-      }
-
-      // Error
-      if (result.error) {
-        doc.setFontSize(8);
-        doc.setFont(undefined, "normal");
-        doc.setTextColor(200, 0, 0);
-        doc.text(`Error: ${result.error}`, margin, yPos);
-        doc.setTextColor(0, 0, 0);
-        yPos += 6;
+        yPos += 8;
       }
 
       yPos += 10;
