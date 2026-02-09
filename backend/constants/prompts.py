@@ -22,20 +22,6 @@ def build_comparison_prompt(apple_clause: str, pdf_filename: str, text_content: 
             prompt = prompt.replace("{text_content}", text_content)
         return prompt
     
-    # Check for saved custom prompts (from file)
-    try:
-        from prompt_store import get_custom_prompt
-        custom = get_custom_prompt()
-        if custom:
-            if text_content and custom.get("text"):
-                template = custom["text"]
-                return template.replace("{apple_clause}", apple_clause).replace("{pdf_filename}", pdf_filename).replace("{text_content}", text_content)
-            elif not text_content and custom.get("pdf"):
-                template = custom["pdf"]
-                return template.replace("{apple_clause}", apple_clause).replace("{pdf_filename}", pdf_filename)
-    except ImportError:
-        pass  # prompt_store not available, use defaults
-    
     # Use default prompts
     if text_content:
         # Use text content directly in prompt

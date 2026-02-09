@@ -239,23 +239,12 @@ async def progress(job_id: str):
 # ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------
-# Prompt Management
+# Prompt Management (Get Default Prompts Only)
 # ---------------------------------------------------------------------------
 
 @app.get("/api/prompt")
 async def get_prompt():
-    """Get current custom prompts."""
-    from prompt_store import get_custom_prompt
-    
-    custom = get_custom_prompt()
-    if custom:
-        return {
-            "pdf": custom.get("pdf", ""),
-            "text": custom.get("text", ""),
-            "has_custom": True,
-        }
-    
-    # Return default prompts
+    """Get default prompts for editing."""
     from constants.prompts import build_comparison_prompt
     default_pdf = build_comparison_prompt("EXAMPLE_CLAUSE", "example.pdf")
     default_text = build_comparison_prompt("EXAMPLE_CLAUSE", "example.txt", text_content="EXAMPLE_TEXT")
@@ -263,33 +252,7 @@ async def get_prompt():
     return {
         "pdf": default_pdf,
         "text": default_text,
-        "has_custom": False,
     }
-
-
-@app.post("/api/prompt")
-async def update_prompt(
-    pdf: str = Form(None),
-    text: str = Form(None),
-    reset: bool = Form(False),
-):
-    """Update or reset custom prompts."""
-    from prompt_store import save_custom_prompt, reset_custom_prompt
-    
-    if reset:
-        success = reset_custom_prompt()
-        if not success:
-            raise HTTPException(status_code=500, detail="Failed to reset prompt")
-        return {"message": "Prompt reset to default"}
-    
-    if pdf is None and text is None:
-        raise HTTPException(status_code=400, detail="Provide at least one prompt (pdf or text)")
-    
-    success = save_custom_prompt(pdf_prompt=pdf, text_prompt=text)
-    if not success:
-        raise HTTPException(status_code=500, detail="Failed to save prompt")
-    
-    return {"message": "Prompt updated successfully"}
 
 
 # ---------------------------------------------------------------------------
