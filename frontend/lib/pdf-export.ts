@@ -1,25 +1,20 @@
 import jsPDF from "jspdf";
-import autoTable from "jspdf-autotable";
 import type { AnalysisResult } from "./types";
 
 /**
- * Convert analysis results to PDF format matching the UI presentation.
+ * Convert analysis results to PDF format with one section per clause.
  */
 export function exportResultsToPDF(results: AnalysisResult[]): jsPDF {
   const doc = new jsPDF();
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
   const margin = 20;
+  const maxWidth = pageWidth - 2 * margin;
   let yPos = margin;
 
   // Helper to check if result is from a PDF (not HTML link)
   const isPdf = (filename: string): boolean => {
     return filename.toLowerCase().endsWith(".pdf") || !filename.startsWith("http");
-  };
-
-  // Helper to format classification text
-  const formatClassification = (classification: string): string => {
-    return classification.replace(/_/g, " ");
   };
 
   // Helper to add a new page if needed
@@ -31,7 +26,7 @@ export function exportResultsToPDF(results: AnalysisResult[]): jsPDF {
   };
 
   // Helper to add text with word wrapping
-  const addWrappedText = (text: string, fontSize: number, isBold: boolean = false, color?: [number, number, number]) => {
+  const addWrappedText = (text: string, fontSize: number, isBold: boolean = false) => {
     doc.setFontSize(fontSize);
     if (isBold) {
       doc.setFont(undefined, "bold");
@@ -39,11 +34,6 @@ export function exportResultsToPDF(results: AnalysisResult[]): jsPDF {
       doc.setFont(undefined, "normal");
     }
     
-    if (color) {
-      doc.setTextColor(color[0], color[1], color[2]);
-    }
-    
-    const maxWidth = pageWidth - 2 * margin;
     const lines = doc.splitTextToSize(text, maxWidth);
     checkPageBreak(lines.length * (fontSize * 0.4) + 5);
     
@@ -52,7 +42,6 @@ export function exportResultsToPDF(results: AnalysisResult[]): jsPDF {
       yPos += fontSize * 0.4;
     });
     
-    doc.setTextColor(0, 0, 0);
     yPos += 3;
   };
 
@@ -81,16 +70,16 @@ export function exportResultsToPDF(results: AnalysisResult[]): jsPDF {
     return idxA - idxB;
   });
 
-  // Simple header
-  doc.setFontSize(14);
+  // Add title
+  doc.setFontSize(18);
   doc.setFont(undefined, "bold");
-  doc.text("Legal Clause Analysis", margin, yPos);
-  yPos += 8;
-  
-  doc.setFontSize(9);
+  doc.text("Legal Clause Analysis Report", margin, yPos);
+  yPos += 15;
+
+  doc.setFontSize(10);
   doc.setFont(undefined, "normal");
   doc.text(`Generated: ${new Date().toLocaleDateString()}`, margin, yPos);
-  yPos += 15;
+  yPos += 10;
 
   // Process each clause
   for (const clause of sortedClauses) {
@@ -101,221 +90,140 @@ export function exportResultsToPDF(results: AnalysisResult[]): jsPDF {
     checkPageBreak(30);
 
     // Clause header
-    doc.setFontSize(12);
+    doc.setFontSize(14);
     doc.setFont(undefined, "bold");
-    doc.text(`Clause ${clauseNum}`, margin, yPos);
+    const clauseTitle = `Clause ${clauseNum}`;
+    doc.text(clauseTitle, margin, yPos);
     yPos += 10;
 
     // Clause text
-    doc.setFontSize(9);
+    doc.setFontSize(10);
     doc.setFont(undefined, "normal");
-    doc.setTextColor(100, 100, 100);
-    const clauseText = clause.length > 400 ? clause.substring(0, 400) + "..." : clause;
-    addWrappedText(clauseText, 9);
-    doc.setTextColor(0, 0, 0);
-    yPos += 8;
+    const clauseText = clause.length > 200 ? clause.substring(0, 200) + "..." : clause;
+    addWrappedText(`Clause Text: ${clauseText}`, 9);
+    yPos += 5;
 
     // Process each result for this clause
     for (const result of clauseResults) {
-      checkPageBreak(50);
+      checkPageBreak(40);
 
-      // Document name (like UI)
-      doc.setFontSize(10);
+      // Document name
+      doc.setFontSize(11);
       doc.setFont(undefined, "bold");
-      doc.text(result.pdf_filename, margin, yPos);
-      yPos += 7;
-
-      // Summary (like UI)
-      if (result.summary) {
-        doc.setFontSize(9);
-        doc.setFont(undefined, "normal");
-        doc.setTextColor(100, 100, 100);
-        addWrappedText(result.summary, 9);
-        doc.setTextColor(0, 0, 0);
-        yPos += 5;
-      }
-
-      // Classification badge (like UI)
-      doc.setFontSize(9);
-      doc.setFont(undefined, "bold");
-      const classificationText = formatClassification(result.classification);
-      doc.text(classificationText, margin, yPos);
+      doc.text(`Document: ${result.pdf_filename}`, margin, yPos);
       yPos += 8;
 
-      // Error display
-      if (result.classification === "ERROR" && result.error) {
-        doc.setFontSize(8);
-        doc.setFont(undefined, "normal");
-        doc.setTextColor(200, 0, 0);
-        addWrappedText(result.error, 8);
-        doc.setTextColor(0, 0, 0);
-        yPos += 5;
+      // Classification
+      doc.setFontSize(10);
+      doc.setFont(undefined, "normal");
+      const classificationColors: Record<string, [number, number, number]> = {
+        IDENTICAL: [34, 197, 94], // green
+        SIMILAR: [234, 179, 8],   // yellow/amber
+        NOT_PRESENT: [156, 163, 175], // gray
+        ERROR: [239, 68, 68],      // red
+      };
+      const color = classificationColors[result.classification] || [0, 0, 0];
+      doc.setTextColor(color[0], color[1], color[2]);
+      doc.text(`Classification: ${result.classification}`, margin, yPos);
+      doc.setTextColor(0, 0, 0);
+      yPos += 6;
+
+      // Summary
+      if (result.summary) {
+        addWrappedText(`Summary: ${result.summary}`, 9);
       }
 
-      // Matches section (like UI)
+      // Matches
       if (result.matches && result.matches.length > 0) {
-        doc.setFontSize(9);
-        doc.setFont(undefined, "normal");
-        doc.text(`${result.matches.length} match${result.matches.length !== 1 ? "es" : ""} found`, margin, yPos);
-        yPos += 10;
+        doc.setFontSize(10);
+        doc.setFont(undefined, "bold");
+        doc.text(`Matches Found: ${result.matches.length}`, margin, yPos);
+        yPos += 8;
 
         result.matches.forEach((match, idx) => {
-          checkPageBreak(80);
+          checkPageBreak(50);
 
-          // Match header (like UI: "Match 1 - SIMILAR")
           doc.setFontSize(9);
           doc.setFont(undefined, "bold");
-          doc.text(`Match ${idx + 1}`, margin, yPos);
-          doc.setFont(undefined, "normal");
-          doc.text(` - ${match.type}`, margin + 25, yPos);
-          yPos += 8;
+          doc.text(`Match ${idx + 1} (${match.type})`, margin, yPos);
+          yPos += 6;
 
-          // Location info (like UI: Page, Section, Paragraph)
-          doc.setFontSize(8);
           doc.setFont(undefined, "normal");
-          doc.setTextColor(100, 100, 100);
           const isPdfResult = isPdf(result.pdf_filename);
           
-          const locationData: string[][] = [];
           if (isPdfResult && match.page) {
-            locationData.push(["Page", match.page.toString()]);
-          }
-          if (match.section) {
-            locationData.push(["Section", match.section]);
-          }
-          if (match.paragraph) {
-            locationData.push(["Paragraph", match.paragraph.toString()]);
+            doc.text(`Page: ${match.page}`, margin, yPos);
+            yPos += 5;
           }
           
-          if (locationData.length > 0) {
-            autoTable(doc, {
-              startY: yPos,
-              body: locationData,
-              theme: "plain",
-              bodyStyles: {
-                fontSize: 8,
-                textColor: [100, 100, 100]
-              },
-              columnStyles: {
-                0: { cellWidth: 40, fontStyle: "normal" },
-                1: { cellWidth: 60, fontStyle: "normal" }
-              },
-              margin: { left: margin, right: margin },
-              tableWidth: 100,
-              styles: {
-                lineColor: [255, 255, 255],
-                lineWidth: 0
-              }
-            });
-            yPos = (doc as any).lastAutoTable.finalY + 5;
+          if (match.section) {
+            doc.text(`Section: ${match.section}`, margin, yPos);
+            yPos += 5;
           }
           
           if (match.section_title) {
-            doc.text(match.section_title, margin, yPos);
+            addWrappedText(`Section Title: ${match.section_title}`, 9);
+          }
+          
+          if (match.paragraph) {
+            doc.text(`Paragraph: ${match.paragraph}`, margin, yPos);
             yPos += 5;
           }
-          doc.setTextColor(0, 0, 0);
 
-          // Quoted Text (like UI - in a box)
           if (match.full_text) {
-            doc.setFontSize(8);
             doc.setFont(undefined, "bold");
-            doc.text("Quoted Text", margin, yPos);
-            yPos += 6;
-            
-            doc.setFont(undefined, "normal");
-            doc.setDrawColor(220, 220, 220);
-            doc.setLineWidth(0.5);
-            const textLines = doc.splitTextToSize(match.full_text, pageWidth - 2 * margin - 10);
-            const textBoxHeight = textLines.length * 4 + 8;
-            doc.rect(margin, yPos, pageWidth - 2 * margin, textBoxHeight);
-            doc.setTextColor(40, 40, 40);
-            textLines.forEach((line: string, lineIdx: number) => {
-              doc.text(line, margin + 5, yPos + 5 + lineIdx * 4);
-            });
-            doc.setTextColor(0, 0, 0);
-            yPos += textBoxHeight + 8;
-          }
-
-          // Key Differences table (like UI - Aspect | Apple | Theirs)
-          if (match.differences && match.differences.length > 0) {
-            doc.setFontSize(8);
-            doc.setFont(undefined, "bold");
-            doc.text("Key Differences", margin, yPos);
-            yPos += 6;
-
-            const diffData = match.differences.map((diff) => [
-              diff.aspect || "N/A",
-              diff.apple || "N/A",
-              diff.theirs || "N/A"
-            ]);
-
-            autoTable(doc, {
-              startY: yPos,
-              head: [["Aspect", "Apple", "Theirs"]],
-              body: diffData,
-              theme: "striped",
-              headStyles: {
-                fillColor: [250, 250, 250],
-                textColor: [0, 0, 0],
-                fontStyle: "bold",
-                fontSize: 8,
-                lineColor: [220, 220, 220],
-                lineWidth: 0.5
-              },
-              bodyStyles: {
-                fontSize: 8,
-                textColor: [0, 0, 0],
-                lineColor: [240, 240, 240],
-                lineWidth: 0.3
-              },
-              columnStyles: {
-                0: { cellWidth: 50, fontStyle: "normal" },
-                1: { cellWidth: 70, fontStyle: "normal" },
-                2: { cellWidth: 70, fontStyle: "normal" }
-              },
-              margin: { left: margin, right: margin },
-              styles: {
-                lineColor: [220, 220, 220],
-                lineWidth: 0.5
-              }
-            });
-
-            yPos = (doc as any).lastAutoTable.finalY + 8;
-          }
-
-          // Legal note (like UI)
-          if (match.legal_note) {
-            doc.setFontSize(8);
-            doc.setFont(undefined, "normal");
-            doc.setTextColor(100, 100, 100);
-            addWrappedText(match.legal_note, 8);
-            doc.setTextColor(0, 0, 0);
+            doc.text("Quoted Text:", margin, yPos);
             yPos += 5;
+            doc.setFont(undefined, "normal");
+            addWrappedText(match.full_text, 8);
           }
 
-          yPos += 8;
+          if (match.differences && match.differences.length > 0) {
+            doc.setFont(undefined, "bold");
+            doc.text("Differences:", margin, yPos);
+            yPos += 5;
+            doc.setFont(undefined, "normal");
+            
+            match.differences.forEach((diff) => {
+              const diffText = `${diff.aspect}: Apple="${diff.apple}" vs Their="${diff.theirs}"`;
+              addWrappedText(diffText, 8);
+            });
+          }
+
+          if (match.legal_note) {
+            doc.setFont(undefined, "italic");
+            addWrappedText(`Legal Note: ${match.legal_note}`, 8);
+            doc.setFont(undefined, "normal");
+          }
+
+          yPos += 5;
         });
       }
 
-      // Overall analysis (like UI - collapsible section)
+      // Analysis
       if (result.analysis) {
         checkPageBreak(30);
-        doc.setFontSize(8);
+        doc.setFontSize(9);
         doc.setFont(undefined, "bold");
-        doc.text("Full Analysis", margin, yPos);
+        doc.text("Overall Analysis:", margin, yPos);
         yPos += 6;
         doc.setFont(undefined, "normal");
-        doc.setTextColor(100, 100, 100);
         addWrappedText(result.analysis, 8);
+      }
+
+      // Error
+      if (result.error) {
+        doc.setFontSize(9);
+        doc.setTextColor(239, 68, 68);
+        doc.text(`Error: ${result.error}`, margin, yPos);
         doc.setTextColor(0, 0, 0);
-        yPos += 8;
+        yPos += 6;
       }
 
       yPos += 10;
     }
 
-    // Add spacing between clauses
+    // Add page break between clauses
     if (sortedClauses.indexOf(clause) < sortedClauses.length - 1) {
       yPos += 10;
       if (yPos > pageHeight - 40) {
@@ -334,3 +242,4 @@ export function exportResultsToPDF(results: AnalysisResult[]): jsPDF {
 export function downloadPDF(doc: jsPDF, filename: string = "legal-analysis-results.pdf") {
   doc.save(filename);
 }
+
