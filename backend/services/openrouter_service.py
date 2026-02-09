@@ -445,6 +445,12 @@ def batch_compare(
             # Update job store with ordered results
             _update_job(job_id, results=list(results))
 
+    # Sort results by clause index, then by document name to ensure consistent ordering
+    results.sort(key=lambda r: (
+        r.get("_clause_idx", 999),  # Sort by clause index first
+        r.get("pdf_filename", "")   # Then by document name
+    ))
+    
     logger.info("[batch] DONE job=%s total_results=%d", job_id, len(results))
     _update_job(job_id, done=True, completed=completed, results=list(results))
     return results
