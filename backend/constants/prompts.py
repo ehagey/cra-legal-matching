@@ -49,7 +49,8 @@ APPLE CLAUSE TO FIND:
 
 INSTRUCTIONS:
 1. Read the ENTIRE document text carefully
-2. Find ALL clauses that match or relate to the Apple clause above (not just the best match)
+2. Analyze the Apple clause above. If it contains multiple distinct legal concepts or ideas, break them down and analyze each one separately. For example, if the clause covers both "termination rights" and "refund policies", treat these as separate concepts and find matches for each independently.
+3. Find ALL clauses that match or relate to the Apple clause (or each distinct concept within it) (not just the best match)
 3. For each match, provide precise citations including:
    - Section/Article number (e.g., "Section 10.2", "Article 5")
    - Paragraph number within that section
@@ -116,7 +117,8 @@ APPLE CLAUSE TO FIND:
 
 INSTRUCTIONS:
 1. Read the ENTIRE PDF document carefully
-2. Find ALL clauses that match or relate to the Apple clause above (not just the best match)
+2. Analyze the Apple clause above. If it contains multiple distinct legal concepts or ideas, break them down and analyze each one separately. For example, if the clause covers both "termination rights" and "refund policies", treat these as separate concepts and find matches for each independently.
+3. Find ALL clauses that match or relate to the Apple clause (or each distinct concept within it) (not just the best match)
 3. For each match, provide precise citations including:
    - Page number (exact page where the clause appears)
    - Section/Article number (e.g., "Section 10.2", "Article 5")
