@@ -265,25 +265,25 @@ INSTRUCTIONS:
 1. Read the ENTIRE PDF document carefully
 2. Analyze the Apple clause above. If it contains multiple distinct legal concepts or ideas, break them down and analyze each one separately. For example, if the clause covers both "termination rights" and "refund policies", treat these as separate concepts and find matches for each independently.
 3. Find ALL clauses that match or relate to the Apple clause (or each distinct concept within it) (not just the best match)
-3. For each match, provide precise citations including:
+4. For each match, provide precise citations including:
    - Page number (exact page where the clause appears)
    - Section/Article number (e.g., "Section 10.2", "Article 5")
    - Paragraph number within that section
    - Section title/heading
    - Full quoted text of the matching clause
 
-4. Classify each match as:
+5. Classify each match as:
    - IDENTICAL: Same legal effect, wording may differ slightly but meaning is equivalent
    - SIMILAR: Related clause with meaningful differences that could affect legal interpretation
    - NOT_PRESENT: No comparable clause exists in this document
 
-5. For SIMILAR matches, provide a side-by-side comparison of key differences:
+6. For SIMILAR matches, provide a side-by-side comparison of key differences:
    - What aspect differs (e.g., "termination notice period", "liability cap", "jurisdiction")
    - Apple's version
    - Their version
    - Legal note explaining the significance of the difference
 
-6. Provide an overall classification for the document:
+7. Provide an overall classification for the document:
    - IDENTICAL: At least one match is IDENTICAL
    - SIMILAR: Only SIMILAR matches found, no IDENTICAL
    - NOT_PRESENT: No comparable clauses found
@@ -342,18 +342,18 @@ INSTRUCTIONS:
    - Section title/heading
    - Full quoted text of the matching clause
 
-4. Classify each match as:
+5. Classify each match as:
    - IDENTICAL: Same legal effect, wording may differ slightly but meaning is equivalent
    - SIMILAR: Related clause with meaningful differences that could affect legal interpretation
    - NOT_PRESENT: No comparable clause exists in this document
 
-5. For SIMILAR matches, provide a side-by-side comparison of key differences:
+6. For SIMILAR matches, provide a side-by-side comparison of key differences:
    - What aspect differs (e.g., "termination notice period", "liability cap", "jurisdiction")
    - Apple's version
    - Their version
    - Legal note explaining the significance of the difference
 
-6. Provide an overall classification for the document:
+7. Provide an overall classification for the document:
    - IDENTICAL: At least one match is IDENTICAL
    - SIMILAR: Only SIMILAR matches found, no IDENTICAL
    - NOT_PRESENT: No comparable clauses found
