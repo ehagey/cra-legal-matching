@@ -18,7 +18,8 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useAnalysis } from "@/hooks/use-analysis";
 import type { AnalysisResult } from "@/lib/types";
 import { exportResultsToExcel, downloadExcel } from "@/lib/excel-export";
-import { Settings, FileSpreadsheet } from "lucide-react";
+import { exportResultsToPDF, downloadPDF } from "@/lib/pdf-export";
+import { Settings, FileSpreadsheet, FileText } from "lucide-react";
 
 export default function Home() {
   // --- Auth ---
@@ -224,19 +225,34 @@ export default function Home() {
           <section className="space-y-6 animate-fade-in">
             <div className="flex items-center justify-between">
               <h2 className="text-2xl font-semibold">Results</h2>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  const workbook = exportResultsToExcel(analysis.results);
-                  const timestamp = new Date().toISOString().split("T")[0];
-                  downloadExcel(workbook, `legal-analysis-${timestamp}.xlsx`);
-                  toast.success("Excel file downloaded successfully");
-                }}
-              >
-                <FileSpreadsheet className="mr-2 h-4 w-4" />
-                Download Excel
-              </Button>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    const doc = exportResultsToPDF(analysis.results);
+                    const timestamp = new Date().toISOString().split("T")[0];
+                    downloadPDF(doc, `legal-analysis-${timestamp}.pdf`);
+                    toast.success("PDF file downloaded successfully");
+                  }}
+                >
+                  <FileText className="mr-2 h-4 w-4" />
+                  Download PDF
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    const workbook = exportResultsToExcel(analysis.results);
+                    const timestamp = new Date().toISOString().split("T")[0];
+                    downloadExcel(workbook, `legal-analysis-${timestamp}.xlsx`);
+                    toast.success("Excel file downloaded successfully");
+                  }}
+                >
+                  <FileSpreadsheet className="mr-2 h-4 w-4" />
+                  Download Excel
+                </Button>
+              </div>
             </div>
 
             {/* Matrix */}
