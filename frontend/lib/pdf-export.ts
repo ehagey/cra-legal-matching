@@ -83,10 +83,12 @@ export function downloadPDF(results: AnalysisResult[]) {
   const wrappedText = (text: string, fontSize: number, color: [number, number, number], style: string = "normal", indent: number = 0) => {
     const clean = sanitize(text);
     if (!clean) return;
+    // Always re-set font fully so splitTextToSize measures with correct metrics
     doc.setFontSize(fontSize);
     doc.setFont("helvetica", style);
     doc.setTextColor(...color);
-    const maxW = usable - indent;
+    // Use a 4mm safety buffer so splitTextToSize lines never hit the exact boundary
+    const maxW = usable - indent - 4;
     const lines: string[] = doc.splitTextToSize(clean, maxW);
     const lineH = fontSize * 0.5;
     const step = lineH + 0.5;
@@ -105,7 +107,7 @@ export function downloadPDF(results: AnalysisResult[]) {
     doc.setFontSize(7.5);
     doc.setFont("helvetica", "normal");
     doc.setTextColor(51, 65, 85);
-    const maxW = usable - 12;
+    const maxW = usable - 12 - 4; // 4mm safety buffer
     const lines: string[] = doc.splitTextToSize(clean, maxW);
     const lineH = 3.5;
     const step = lineH + 0.4;
@@ -192,10 +194,10 @@ export function downloadPDF(results: AnalysisResult[]) {
     need(14);
 
     // Clause heading
-      doc.setFontSize(11);
+    doc.setFontSize(11);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(...DARK);
-    const titleLines: string[] = doc.splitTextToSize(`${ci + 1}. ${title}`, usable);
+    const titleLines: string[] = doc.splitTextToSize(`${ci + 1}. ${title}`, usable - 4);
     for (const tl of titleLines) {
       need(6);
       doc.text(tl, M, y + 5);
@@ -221,7 +223,7 @@ export function downloadPDF(results: AnalysisResult[]) {
       doc.setFontSize(9);
       doc.setFont("helvetica", "bold");
       doc.setTextColor(...SUB);
-      const docLines: string[] = doc.splitTextToSize(docName, usable - badgeW - 4);
+      const docLines: string[] = doc.splitTextToSize(docName, usable - badgeW - 8);
       for (let dl = 0; dl < docLines.length; dl++) {
         need(5);
         doc.setTextColor(...SUB);
@@ -258,7 +260,7 @@ export function downloadPDF(results: AnalysisResult[]) {
         doc.setFontSize(8);
         doc.setFont("helvetica", "bold");
         doc.setTextColor(...cc(mtype));
-        const aspLines: string[] = doc.splitTextToSize(aspectLine, usable - 6);
+        const aspLines: string[] = doc.splitTextToSize(aspectLine, usable - 10);
         for (const al of aspLines) {
           need(4);
           doc.text(al, M + 4, y + 3);
