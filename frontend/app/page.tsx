@@ -17,9 +17,9 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useAnalysis } from "@/hooks/use-analysis";
 import type { AnalysisResult } from "@/lib/types";
-import { exportResultsToExcel, downloadExcel } from "@/lib/excel-export";
-import { exportResultsToPDF, downloadPDF } from "@/lib/pdf-export";
-import { Settings, FileSpreadsheet, FileText } from "lucide-react";
+import { exportResultsToCSV, downloadCSV } from "@/lib/csv-export";
+import { downloadPDF } from "@/lib/pdf-export";
+import { Settings, FileText, FileDown } from "lucide-react";
 
 export default function Home() {
   // --- Auth ---
@@ -230,10 +230,8 @@ export default function Home() {
                   variant="outline"
                   size="sm"
                   onClick={() => {
-                    const doc = exportResultsToPDF(analysis.results);
-                    const timestamp = new Date().toISOString().split("T")[0];
-                    downloadPDF(doc, `legal-analysis-${timestamp}.pdf`);
-                    toast.success("PDF file downloaded successfully");
+                    downloadPDF(analysis.results);
+                    toast.success("PDF downloaded");
                   }}
                 >
                   <FileText className="mr-2 h-4 w-4" />
@@ -243,14 +241,14 @@ export default function Home() {
                   variant="outline"
                   size="sm"
                   onClick={() => {
-                    const workbook = exportResultsToExcel(analysis.results);
+                    const csv = exportResultsToCSV(analysis.results);
                     const timestamp = new Date().toISOString().split("T")[0];
-                    downloadExcel(workbook, `legal-analysis-${timestamp}.xlsx`);
-                    toast.success("Excel file downloaded successfully");
+                    downloadCSV(csv, `legal-analysis-${timestamp}.csv`);
+                    toast.success("CSV downloaded");
                   }}
                 >
-                  <FileSpreadsheet className="mr-2 h-4 w-4" />
-                  Download Excel
+                  <FileDown className="mr-2 h-4 w-4" />
+                  Download CSV
                 </Button>
               </div>
             </div>

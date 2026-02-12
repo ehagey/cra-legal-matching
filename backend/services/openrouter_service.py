@@ -4,6 +4,7 @@ import json
 import logging
 import re
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -23,8 +24,15 @@ from config import (
     PDF_ENGINE,
     TEMPERATURE,
 )
-from constants.prompts import build_comparison_prompt
+from constants.prompts import build_aspect_extraction_prompt, build_comparison_prompt
 from services.pdf_service import encode_pdf_to_base64, validate_pdf
+
+
+# ---------------------------------------------------------------------------
+# Retry configuration
+# ---------------------------------------------------------------------------
+MAX_API_RETRIES = 3
+API_RETRY_DELAYS = [5, 10, 20]  # seconds between retries
 
 
 # ---------------------------------------------------------------------------
@@ -42,41 +50,280 @@ def _update_job(job_id: Optional[str], **kwargs):
 
 
 # ---------------------------------------------------------------------------
-# JSON parsing
+# JSON parsing — kept simple
 # ---------------------------------------------------------------------------
 
-def _parse_json_response(content: str) -> Dict:
-    """Extract JSON from Claude response with multiple fallback strategies."""
-    # Strategy 1: direct parse
+_JSON_PARSE_ERROR = "JSON parsing failed"
+
+
+def _close_truncated_json(text: str) -> Optional[Dict]:
+    """If the LLM was cut off mid-JSON, close open strings/brackets and parse."""
+    start = text.find("{")
+    if start == -1:
+        return None
+    s = text[start:]
+    # Close unterminated string
+    in_str, esc = False, False
+    for ch in s:
+        if esc: esc = False; continue
+        if ch == "\\": esc = True; continue
+        if ch == '"': in_str = not in_str
+    if in_str:
+        s += '"'
+    # Close open brackets
+    stack: list[str] = []
+    in_str, esc = False, False
+    for ch in s:
+        if esc: esc = False; continue
+        if ch == "\\": esc = True; continue
+        if ch == '"': in_str = not in_str; continue
+        if in_str: continue
+        if ch in "{[": stack.append(ch)
+        elif ch == "}" and stack and stack[-1] == "{": stack.pop()
+        elif ch == "]" and stack and stack[-1] == "[": stack.pop()
+    for opener in reversed(stack):
+        s += "]" if opener == "[" else "}"
+    s = re.sub(r",\s*([\]}])", r"\1", s)  # trailing commas
     try:
-        return json.loads(content)
+        parsed = json.loads(s)
+        return parsed if isinstance(parsed, dict) else None
+    except json.JSONDecodeError:
+        return None
+
+
+def _parse_json_response(content: str) -> Dict:
+    """Parse LLM output into a dict.  Handles code fences, truncation, lists."""
+    text = content.strip()
+
+    # 1. Strip ```json ... ``` or ``` ... ``` (complete or truncated)
+    m = re.match(r"^```(?:json)?\s*\n?(.*?)(?:```\s*)?$", text, re.DOTALL | re.IGNORECASE)
+    if m:
+        text = m.group(1).strip()
+
+    # 2. Try direct parse
+    try:
+        parsed = json.loads(text)
+        if isinstance(parsed, dict):
+            return parsed
+        if isinstance(parsed, list):
+            for item in parsed:
+                if isinstance(item, dict):
+                    return item
     except json.JSONDecodeError:
         pass
 
-    # Strategy 2: markdown code block
-    json_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", content, re.DOTALL)
-    if json_match:
-        try:
-            return json.loads(json_match.group(1))
-        except json.JSONDecodeError:
-            pass
+    # 3. Try closing truncated JSON (model hit output token limit)
+    repaired = _close_truncated_json(text)
+    if repaired is not None:
+        logger.info("Repaired truncated JSON (%d chars)", len(text))
+        return repaired
 
-    # Strategy 3: first { … } block
-    json_match = re.search(r"\{.*\}", content, re.DOTALL)
-    if json_match:
-        try:
-            return json.loads(json_match.group(0))
-        except json.JSONDecodeError:
-            pass
-
+    # 4. Give up
+    logger.error("JSON parse failed. First 500 chars:\n%s", content[:500])
     return {
         "classification": "ERROR",
-        "summary": "Failed to parse JSON response from API",
+        "summary": "Failed to parse JSON from LLM",
         "matches": [],
-        "analysis": f"Raw response: {content[:500]}…",
-        "error": "JSON parsing failed",
-        "raw_response": content,
+        "error": _JSON_PARSE_ERROR,
+        "raw_snippet": content[:500],
     }
+
+
+def _is_retryable(result: Dict) -> bool:
+    """Should we retry this result?"""
+    err = str(result.get("error", ""))
+    if not err:
+        return False
+    if err == _JSON_PARSE_ERROR:
+        return True
+    if any(code in err for code in ["429", "500", "502", "503", "504"]):
+        return True
+    lower = err.lower()
+    return any(kw in lower for kw in ["timeout", "connection", "reset"])
+
+
+def _call_openrouter(payload: Dict, timeout: int = 120) -> Tuple[Dict, Optional[str]]:
+    """
+    Make a single OpenRouter API call.
+
+    Returns (parsed_result_dict, raw_content_or_None).
+    On HTTP or network error, returns an error dict.
+    """
+    headers = {
+        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://github.com/cra-legal-matching",
+        "X-Title": "Legal Clause Analyzer",
+    }
+    
+    try:
+        response = requests.post(
+            OPENROUTER_API_URL, headers=headers, json=payload, timeout=timeout
+        )
+        
+        if response.status_code != 200:
+            error_detail = ""
+            try:
+                err = response.json()
+                error_detail = err.get("error", {}).get("message", str(err))
+            except Exception:
+                error_detail = response.text[:500]
+            return {
+                "classification": "ERROR",
+                "summary": f"API request failed: {response.status_code} {response.reason}",
+                "matches": [],
+                "analysis": f"Error from OpenRouter API: {error_detail}",
+                "error": f"{response.status_code}: {error_detail}",
+            }, None
+
+        resp_json = response.json()
+        choice = resp_json.get("choices", [{}])[0]
+        raw_content = choice.get("message", {}).get("content", "")
+        finish_reason = choice.get("finish_reason", "")
+        if finish_reason == "length":
+            logger.warning("Response may be truncated (finish_reason=length, %d chars)", len(raw_content))
+        parsed = _parse_json_response(raw_content)
+        return parsed, raw_content
+        
+    except requests.exceptions.RequestException as e:
+        return {
+            "classification": "ERROR",
+            "summary": f"API request failed: {e}",
+            "matches": [],
+            "analysis": f"Error connecting to OpenRouter API: {e}",
+            "error": str(e),
+        }, None
+    except Exception as e:
+        return {
+            "classification": "ERROR",
+            "summary": f"Unexpected error: {e}",
+            "matches": [],
+            "analysis": f"An unexpected error occurred: {e}",
+            "error": str(e),
+        }, None
+
+
+def _call_openrouter_with_retry(payload: Dict, label: str = "", timeout: int = 120) -> Dict:
+    """
+    Call OpenRouter with automatic retry on transient/retryable errors.
+    Returns the final parsed result dict.
+    """
+    last_result: Dict = {}
+    for attempt in range(1, MAX_API_RETRIES + 1):
+        result, _ = _call_openrouter(payload, timeout=timeout)
+
+        if not _is_retryable(result):
+            return result  # Success or non-retryable error
+
+        last_result = result
+        err_short = result.get("error", "unknown")[:80]
+        if attempt < MAX_API_RETRIES:
+            delay = API_RETRY_DELAYS[attempt - 1]
+            logger.warning(
+                "[retry] %s — attempt %d/%d failed (%s), retrying in %ds…",
+                label, attempt, MAX_API_RETRIES, err_short, delay,
+            )
+            time.sleep(delay)
+        else:
+            logger.error(
+                "[retry] %s — all %d attempts failed. Last error: %s",
+                label, MAX_API_RETRIES, err_short,
+            )
+
+    return last_result
+
+
+# ---------------------------------------------------------------------------
+# Phase 1: Extract aspects from an Apple clause
+# ---------------------------------------------------------------------------
+
+def extract_aspects(apple_clause: str) -> List[Dict]:
+    """
+    Ask the LLM to identify the distinct legal aspects in an Apple clause.
+    Uses automatic retry on transient errors / JSON parse failures.
+    Returns a list of {"label": "...", "description": "..."} dicts.
+    Falls back to a single generic aspect on failure.
+    """
+    fallback = [{"label": "General", "description": apple_clause}]
+    prompt = build_aspect_extraction_prompt(apple_clause)
+
+    payload = {
+        "model": MODEL_NAME,
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": TEMPERATURE,
+        "max_tokens": 2000,
+        "response_format": {"type": "json_object"},
+    }
+
+    clause_short = apple_clause[:40] + "…" if len(apple_clause) > 40 else apple_clause
+    parsed = _call_openrouter_with_retry(payload, label=f"extract_aspects({clause_short})", timeout=60)
+
+    if parsed.get("classification") == "ERROR":
+        logger.warning("Aspect extraction failed after retries: %s", parsed.get("error", ""))
+        return fallback
+
+    aspects = parsed.get("aspects", [])
+    if not aspects or not isinstance(aspects, list):
+        logger.warning("Aspect extraction returned no aspects, using fallback")
+        return fallback
+
+    # Validate structure
+    valid = []
+    for asp in aspects:
+        if isinstance(asp, dict) and asp.get("label") and asp.get("description"):
+            valid.append({"label": asp["label"].strip(), "description": asp["description"].strip()})
+
+    if not valid:
+        return fallback
+
+    # If there are 2+ distinct aspects, prepend a "Holistic Review" aspect
+    # so the LLM also compares the clause as a whole (not just piece-by-piece).
+    # For single-aspect clauses this is unnecessary — one aspect IS the whole clause.
+    if len(valid) >= 2:
+        holistic = {
+            "label": "Holistic Review",
+            "description": (
+                "Overall assessment of the entire clause as a whole — "
+                "compare the combined legal effect of all its provisions together, "
+                "not just the individual aspects."
+            ),
+        }
+        valid.insert(0, holistic)
+
+    logger.info("Extracted %d aspects from clause: %s", len(valid), [a["label"] for a in valid])
+    return valid
+
+
+# ---------------------------------------------------------------------------
+# Deterministic overall classification (overrides LLM's top-level label)
+# ---------------------------------------------------------------------------
+
+def _compute_overall_classification(result: Dict) -> str:
+    """
+    Majority-based rule:
+      - Count present (IDENTICAL/SIMILAR) vs NOT_PRESENT matches.
+      - If more than half are NOT_PRESENT → NOT_PRESENT.
+      - Otherwise: all present are IDENTICAL → IDENTICAL, else → SIMILAR.
+    Falls back to the LLM's own label if there are no matches.
+    """
+    matches = result.get("matches") or []
+    if not matches:
+        return result.get("classification", "NOT_PRESENT")
+
+    # Defensive: skip any non-dict entries in matches
+    types = [m.get("type", "NOT_PRESENT") for m in matches if isinstance(m, dict)]
+    if not types:
+        return result.get("classification", "NOT_PRESENT")
+    not_present = sum(1 for t in types if t == "NOT_PRESENT")
+    total = len(types)
+
+    if not_present > total / 2:
+        return "NOT_PRESENT"
+
+    present_types = [t for t in types if t != "NOT_PRESENT"]
+    if all(t == "IDENTICAL" for t in present_types):
+        return "IDENTICAL"
+    return "SIMILAR"
 
 
 # ---------------------------------------------------------------------------
@@ -88,89 +335,32 @@ def compare_clause_with_text(
     text_content: str,
     document_name: str,
     custom_prompt: str = None,
+    aspects: list = None,
 ) -> Dict:
     """
     Compare a single Apple clause against text content (from HTML scraping).
-    
-    Returns dict with classification, summary, matches, analysis, error.
+    Automatically retries on transient errors and JSON parse failures.
     """
-    prompt = build_comparison_prompt(apple_clause, document_name, text_content=text_content, custom_prompt=custom_prompt)
-    
+    prompt = build_comparison_prompt(apple_clause, document_name, text_content=text_content, custom_prompt=custom_prompt, aspects=aspects)
+
     text_size_kb = len(text_content.encode("utf-8")) / 1024
     logger.info("Processing: %s (%.2f KB text)", document_name, text_size_kb)
-    
-    headers = {
-        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-        "Content-Type": "application/json",
-        "HTTP-Referer": "https://github.com/cra-legal-matching",
-        "X-Title": "Legal Clause Analyzer",
-    }
-    
+
     payload = {
         "model": MODEL_NAME,
-        "messages": [
-            {
-                "role": "user",
-                "content": prompt,
-            }
-        ],
+        "messages": [{"role": "user", "content": prompt}],
         "temperature": TEMPERATURE,
         "max_tokens": MAX_TOKENS,
+        "response_format": {"type": "json_object"},
     }
-    
-    try:
-        response = requests.post(
-            OPENROUTER_API_URL, headers=headers, json=payload, timeout=120
-        )
-        
-        if response.status_code != 200:
-            error_detail = ""
-            try:
-                err = response.json()
-                error_detail = err.get("error", {}).get("message", str(err))
-            except Exception:
-                error_detail = response.text[:500]
-            
-            return {
-                "classification": "ERROR",
-                "summary": f"API request failed: {response.status_code} {response.reason}",
-                "matches": [],
-                "analysis": f"Error from OpenRouter API: {error_detail}",
-                "error": f"{response.status_code}: {error_detail}",
-                "pdf_filename": document_name,
-                "apple_clause": apple_clause[:100] + ("…" if len(apple_clause) > 100 else ""),
-            }
-        
-        result = response.json()
-        content = result.get("choices", [{}])[0].get("message", {}).get("content", "")
-        parsed_result = _parse_json_response(content)
-        
-        parsed_result["pdf_filename"] = document_name
-        parsed_result["apple_clause"] = apple_clause[:100] + ("…" if len(apple_clause) > 100 else "")
-        return parsed_result
-        
-    except requests.exceptions.RequestException as e:
-        logger.exception("Request exception")
-        return {
-            "classification": "ERROR",
-            "summary": f"API request failed: {e}",
-            "matches": [],
-            "analysis": f"Error connecting to OpenRouter API: {e}",
-            "error": str(e),
-            "pdf_filename": document_name,
-            "apple_clause": apple_clause[:100] + ("…" if len(apple_clause) > 100 else ""),
-        }
-    except Exception as e:
-        logger.exception("Unexpected exception")
-        return {
-            "classification": "ERROR",
-            "summary": f"Unexpected error: {e}",
-            "matches": [],
-            "analysis": f"An unexpected error occurred: {e}",
-            "error": str(e),
-            "pdf_filename": document_name,
-            "apple_clause": apple_clause[:100] + ("…" if len(apple_clause) > 100 else ""),
-        }
+
+    doc_short = document_name[:40] + "…" if len(document_name) > 40 else document_name
+    result = _call_openrouter_with_retry(payload, label=f"compare_text({doc_short})")
+
+    result["pdf_filename"] = document_name
+    result["apple_clause"] = apple_clause
+    result["classification"] = _compute_overall_classification(result)
+    return result
 
 
 def compare_clause(
@@ -178,23 +368,16 @@ def compare_clause(
     pdf_data_url: str,
     pdf_filename: str,
     custom_prompt: str = None,
+    aspects: list = None,
 ) -> Dict:
     """
     Compare a single Apple clause against one PDF document.
-
-    Returns dict with classification, summary, matches, analysis, usage, error.
+    Automatically retries on transient errors and JSON parse failures.
     """
-    prompt = build_comparison_prompt(apple_clause, pdf_filename, custom_prompt=custom_prompt)
+    prompt = build_comparison_prompt(apple_clause, pdf_filename, custom_prompt=custom_prompt, aspects=aspects)
 
     pdf_size_mb = len(pdf_data_url.encode("utf-8")) / (1024 * 1024)
     logger.info("Processing: %s (%.2f MB data URL)", pdf_filename, pdf_size_mb)
-
-    headers = {
-        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-        "Content-Type": "application/json",
-        "HTTP-Referer": "https://github.com/cra-legal-matching",
-        "X-Title": "Legal Clause Analyzer",
-    }
 
     payload = {
         "model": MODEL_NAME,
@@ -216,61 +399,16 @@ def compare_clause(
         "plugins": [{"id": "file-parser", "pdf": {"engine": PDF_ENGINE}}],
         "temperature": TEMPERATURE,
         "max_tokens": MAX_TOKENS,
+        "response_format": {"type": "json_object"},
     }
 
-    try:
-        response = requests.post(
-            OPENROUTER_API_URL, headers=headers, json=payload, timeout=120
-        )
+    doc_short = pdf_filename[:40] + "…" if len(pdf_filename) > 40 else pdf_filename
+    result = _call_openrouter_with_retry(payload, label=f"compare_pdf({doc_short})")
 
-        if response.status_code != 200:
-            error_detail = ""
-            try:
-                err = response.json()
-                error_detail = err.get("error", {}).get("message", str(err))
-            except Exception:
-                error_detail = response.text[:500]
-
-            return {
-                "classification": "ERROR",
-                "summary": f"API request failed: {response.status_code} {response.reason}",
-                "matches": [],
-                "analysis": f"Error from OpenRouter API: {error_detail}",
-                "error": f"{response.status_code}: {error_detail}",
-                "pdf_filename": pdf_filename,
-                "apple_clause": apple_clause[:100] + ("…" if len(apple_clause) > 100 else ""),
-            }
-
-        result = response.json()
-        content = result.get("choices", [{}])[0].get("message", {}).get("content", "")
-        parsed_result = _parse_json_response(content)
-
-        parsed_result["pdf_filename"] = pdf_filename
-        parsed_result["apple_clause"] = apple_clause[:100] + ("…" if len(apple_clause) > 100 else "")
-        return parsed_result
-
-    except requests.exceptions.RequestException as e:
-        logger.exception("Request exception")
-        return {
-            "classification": "ERROR",
-            "summary": f"API request failed: {e}",
-            "matches": [],
-            "analysis": f"Error connecting to OpenRouter API: {e}",
-            "error": str(e),
-            "pdf_filename": pdf_filename,
-            "apple_clause": apple_clause[:100] + ("…" if len(apple_clause) > 100 else ""),
-        }
-    except Exception as e:
-        logger.exception("Unexpected exception")
-        return {
-            "classification": "ERROR",
-            "summary": f"Unexpected error: {e}",
-            "matches": [],
-            "analysis": f"An unexpected error occurred: {e}",
-            "error": str(e),
-            "pdf_filename": pdf_filename,
-            "apple_clause": apple_clause[:100] + ("…" if len(apple_clause) > 100 else ""),
-        }
+    result["pdf_filename"] = pdf_filename
+    result["apple_clause"] = apple_clause
+    result["classification"] = _compute_overall_classification(result)
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -310,7 +448,8 @@ def batch_compare(
                 _update_job(job_id, current_item=f"✓ Scraped: {display_name[:60]}")
             else:
                 logger.warning("[batch] Failed to scrape %s: %s", link, text_content)
-                _update_job(job_id, current_item=f"✗ Failed to scrape: {display_name_short}")
+                fail_label = display_name if display_name else display_name_short
+                _update_job(job_id, current_item=f"✗ Failed to scrape: {fail_label[:60]}")
                 # Add error result for each clause
                 for clause in apple_clauses:
                     err_result = {
@@ -320,7 +459,7 @@ def batch_compare(
                         "analysis": f"Could not scrape {link}: {text_content}",
                         "error": text_content,
                         "pdf_filename": link,
-                        "apple_clause": clause[:100] + ("…" if len(clause) > 100 else ""),
+                        "apple_clause": clause,
                     }
                     results.append(err_result)
                     completed = len(results)
@@ -349,7 +488,7 @@ def batch_compare(
                         "analysis": f"Could not process {filename}: {error_msg}",
                         "error": error_msg,
                         "pdf_filename": filename,
-                        "apple_clause": clause[:100] + ("…" if len(clause) > 100 else ""),
+                        "apple_clause": clause,
                     }
                     results.append(err_result)
                     completed += 1
@@ -367,7 +506,7 @@ def batch_compare(
                         "analysis": f"Could not process {filename}: {error_msg}",
                         "error": error_msg,
                         "pdf_filename": filename,
-                        "apple_clause": clause[:100] + ("…" if len(clause) > 100 else ""),
+                        "apple_clause": clause,
                     }
                     results.append(err_result)
                     completed += 1
@@ -377,6 +516,34 @@ def batch_compare(
             encoded_pdfs[filename] = encode_pdf_to_base64(pdf_bytes)
             _update_job(job_id, total=0, current_item=f"✓ Parsed: {filename_short}")
 
+    # ---------------------------------------------------------------
+    # Phase 1: Extract aspects from each Apple clause (in parallel)
+    # ---------------------------------------------------------------
+    _update_job(job_id, current_item="Extracting legal aspects from clauses…")
+    logger.info("[batch] Phase 1: Extracting aspects from %d clauses", len(apple_clauses))
+
+    clause_aspects: Dict[int, List[Dict]] = {}  # clause_idx -> list of aspects
+
+    with ThreadPoolExecutor(max_workers=min(len(apple_clauses), 10)) as executor:
+        aspect_futures = {
+            executor.submit(extract_aspects, clause): idx
+            for idx, clause in enumerate(apple_clauses)
+        }
+        for future in aspect_futures:
+            idx = aspect_futures[future]
+            try:
+                aspects = future.result()
+                clause_aspects[idx] = aspects
+                logger.info("[batch] Clause %d aspects: %s", idx + 1, [a["label"] for a in aspects])
+            except Exception as e:
+                logger.exception("[batch] Aspect extraction failed for clause %d", idx + 1)
+                clause_aspects[idx] = [{"label": "General", "description": apple_clauses[idx]}]
+
+    _update_job(job_id, current_item="✓ Aspects extracted — starting comparisons…")
+
+    # ---------------------------------------------------------------
+    # Phase 2: Compare each clause × document with pre-defined aspects
+    # ---------------------------------------------------------------
     # Build list of tasks for parallel execution
     tasks = []
     # PDF tasks
@@ -397,7 +564,7 @@ def batch_compare(
 
     # Set total now that we're ready to start actual comparisons
     _update_job(job_id, total=completed + len(tasks), current_item="Starting comparisons…")
-    logger.info("[batch] Running %d comparisons in parallel", len(tasks))
+    logger.info("[batch] Phase 2: Running %d comparisons in parallel", len(tasks))
 
     lock = threading.Lock()
 
@@ -406,32 +573,45 @@ def batch_compare(
         clause_short = clause[:40] + "…" if len(clause) > 40 else clause
         doc_short = doc_name[:40] + "…" if len(doc_name) > 40 else doc_name
         label = f"Clause {clause_idx + 1} vs {doc_short}"
+        aspects = clause_aspects.get(clause_idx)
         
         # Update progress when starting
         with lock:
             _update_job(job_id, completed=completed, current_item=f"Comparing: {clause_short} vs {doc_short}…", results=list(results))
         
-        logger.info("[batch] Starting: %s", label)
+        try:
+            logger.info("[batch] Starting: %s (aspects: %s)", label, [a.get("label", "?") if isinstance(a, dict) else str(a) for a in (aspects or [])])
+            
+            if task_type == "pdf":
+                result = compare_clause(clause, pdf_data_url, doc_name, custom_prompt=custom_prompt_pdf, aspects=aspects)
+            else:  # html
+                result = compare_clause_with_text(clause, text_content, doc_name, custom_prompt=custom_prompt_text, aspects=aspects)
+        except Exception as e:
+            logger.exception("[batch] Unexpected error in %s", label)
+            result = {
+                "classification": "ERROR",
+                "summary": f"Unexpected error: {e}",
+                "matches": [],
+                "analysis": f"An unexpected error occurred while processing {label}: {e}",
+                "error": str(e),
+                "pdf_filename": doc_name,
+            }
         
-        if task_type == "pdf":
-            result = compare_clause(clause, pdf_data_url, doc_name, custom_prompt=custom_prompt_pdf)
-        else:  # html
-            result = compare_clause_with_text(clause, text_content, doc_name, custom_prompt=custom_prompt_text)
-        
-        # Store full clause text and clause index for ordering
+        # Store full clause text, clause index, and aspects for downstream use
         result["apple_clause"] = clause  # Full clause, not truncated
         result["_clause_idx"] = clause_idx  # For ordering
+        result["_aspects"] = aspects  # Pre-defined aspects for this clause
         
         with lock:
             completed += 1
             classification = result.get("classification", "UNKNOWN")
             logger.info("[batch] Finished: %s -> %s  (%d/%d)",
                         label, classification, completed, total_comparisons)
-            # Don't append here - we'll collect in order from futures
             _update_job(job_id, completed=completed, current_item=f"✓ {classification}: Clause {clause_idx + 1} vs {doc_short}", results=list(results))
         return result
 
-    max_workers = min(len(tasks), 5)
+    BATCH_SIZE = 50
+    max_workers = min(len(tasks), BATCH_SIZE)
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         # Submit all tasks in order
         ordered_futures = [

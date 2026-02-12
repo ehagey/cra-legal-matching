@@ -255,7 +255,11 @@ async def get_prompt():
             "has_custom": True,
         }
     
-    # Return default prompts (raw templates with placeholders)
+    # Return default prompts (raw templates with placeholders).
+    # NOTE: The system now uses a two-phase approach:
+    #   Phase 1: Aspects are extracted from each Apple clause first (separate LLM call)
+    #   Phase 2: The comparison prompt is augmented with those pre-defined aspects
+    # The templates below are the fallback (no pre-defined aspects) variants.
     default_pdf = """You are a legal analyst comparing developer agreement clauses. Your task is to analyze the attached PDF document ("{pdf_filename}") and find ALL clauses that match or relate to the following Apple Developer Agreement clause.
 
 APPLE CLAUSE TO FIND:
@@ -263,66 +267,22 @@ APPLE CLAUSE TO FIND:
 
 INSTRUCTIONS:
 1. Read the ENTIRE PDF document carefully
-2. Analyze the Apple clause above. If it contains multiple distinct legal concepts or ideas, break them down and analyze each one separately. For example, if the clause covers both "termination rights" and "refund policies", treat these as separate concepts and find matches for each independently.
-3. Find ALL clauses that match or relate to the Apple clause (or each distinct concept within it). Not just the best match.
-4. For each match, provide precise citations including:
-   - Page number (exact page where the clause appears)
-   - Section/Article number (e.g., "Section 10.2", "Article 5")
-   - Paragraph number within that section
-   - Section title/heading
-   - Full quoted text of the matching clause
+2. Find ALL clauses that match or relate to the Apple clause. Not just the best match.
+3. For each match, provide precise citations including page number, section/article number, paragraph number, section title, and full quoted text.
 
 5. Classify each match as:
-   - IDENTICAL: Same legal effect, wording may differ slightly but meaning is equivalent
-   - SIMILAR: Related clause with meaningful differences that could affect legal interpretation
-   - NOT_PRESENT: No comparable clause exists in this document
+   - IDENTICAL: Same legal effect
+   - SIMILAR: Related with meaningful differences
 
-6. For SIMILAR matches, provide a side-by-side comparison of key differences:
-   - What aspect differs (e.g., "termination notice period", "liability cap", "jurisdiction")
-   - Apple's version
-   - Their version
-   - Legal note explaining the significance of the difference
-
-7. Provide an overall classification for the document:
-   - IDENTICAL: At least one match is IDENTICAL
-   - SIMILAR: Only SIMILAR matches found, no IDENTICAL
-   - NOT_PRESENT: No comparable clauses found
+6. For SIMILAR matches, provide a side-by-side comparison of key differences.
+7. Every match MUST include an "aspect_label" field (2-5 words).
 
 OUTPUT FORMAT:
-You MUST respond with valid JSON only, using this exact schema:
-
-{{
-  "classification": "IDENTICAL" | "SIMILAR" | "NOT_PRESENT",
-  "summary": "Brief one-line finding (e.g., 'Found 2 identical matches in Section 5.3 and Section 8.1')",
-  "matches": [
-    {{
-      "type": "IDENTICAL" | "SIMILAR",
-      "page": <number>,
-      "section": "<section number, e.g., '10.2' or 'Article 5'>",
-      "section_title": "<full section heading/title>",
-      "paragraph": <number>,
-      "full_text": "<exact quoted text of the matching clause>",
-      "differences": [
-        {{
-          "aspect": "<what differs, e.g., 'termination period'>",
-          "apple": "<Apple's version>",
-          "theirs": "<their version>"
-        }}
-      ],
-      "legal_note": "<explanation of legal significance, especially for SIMILAR matches>"
-    }}
-  ],
-  "analysis": "<Overall comparison summary explaining the relationship between the Apple clause and what was found in this document>"
-}}
+Valid JSON only with: classification, has_multiple_aspects, summary, matches[], analysis.
 
 IMPORTANT:
-- Return ONLY valid JSON, no markdown code blocks, no explanatory text before or after
-- If no matches found, return classification: "NOT_PRESENT" with empty matches array
-- For IDENTICAL matches, differences array should be empty
-- Page numbers must be accurate - cite the exact page where text appears
-- Section and paragraph numbers must match what's in the document
-- Full quoted text must be EXACT verbatim copies from the document — preserve the original capitalization, punctuation, and formatting exactly as written. Do NOT convert text to uppercase, title case, or any other case that differs from the source document.
-- In the "differences" table, the "apple" and "theirs" values must also preserve original casing exactly as they appear in each respective document"""
+- Return ONLY valid JSON
+- Full quoted text must be EXACT verbatim copies — preserve original casing"""
 
     default_text = """You are a legal analyst comparing developer agreement clauses. Your task is to analyze the following document text ("{pdf_filename}") and find ALL clauses that match or relate to the following Apple Developer Agreement clause.
 
@@ -334,64 +294,22 @@ APPLE CLAUSE TO FIND:
 
 INSTRUCTIONS:
 1. Read the ENTIRE document text carefully
-2. Analyze the Apple clause above. If it contains multiple distinct legal concepts or ideas, break them down and analyze each one separately. For example, if the clause covers both "termination rights" and "refund policies", treat these as separate concepts and find matches for each independently.
-3. Find ALL clauses that match or relate to the Apple clause (or each distinct concept within it). Not just the best match.
-3. For each match, provide precise citations including:
-   - Section/Article number (e.g., "Section 10.2", "Article 5")
-   - Paragraph number within that section
-   - Section title/heading
-   - Full quoted text of the matching clause
+2. Find ALL clauses that match or relate to the Apple clause. Not just the best match.
+3. For each match, provide precise citations including section/article number, paragraph number, section title, and full quoted text.
 
 5. Classify each match as:
-   - IDENTICAL: Same legal effect, wording may differ slightly but meaning is equivalent
-   - SIMILAR: Related clause with meaningful differences that could affect legal interpretation
-   - NOT_PRESENT: No comparable clause exists in this document
+   - IDENTICAL: Same legal effect
+   - SIMILAR: Related with meaningful differences
 
-6. For SIMILAR matches, provide a side-by-side comparison of key differences:
-   - What aspect differs (e.g., "termination notice period", "liability cap", "jurisdiction")
-   - Apple's version
-   - Their version
-   - Legal note explaining the significance of the difference
-
-7. Provide an overall classification for the document:
-   - IDENTICAL: At least one match is IDENTICAL
-   - SIMILAR: Only SIMILAR matches found, no IDENTICAL
-   - NOT_PRESENT: No comparable clauses found
+6. For SIMILAR matches, provide a side-by-side comparison of key differences.
+7. Every match MUST include an "aspect_label" field (2-5 words).
 
 OUTPUT FORMAT:
-You MUST respond with valid JSON only, using this exact schema:
-
-{{
-  "classification": "IDENTICAL" | "SIMILAR" | "NOT_PRESENT",
-  "summary": "Brief one-line finding (e.g., 'Found 2 identical matches in Section 5.3 and Section 8.1')",
-  "matches": [
-    {{
-      "type": "IDENTICAL" | "SIMILAR",
-      "page": <number or null if not available>,
-      "section": "<section number, e.g., '10.2' or 'Article 5'>",
-      "section_title": "<full section heading/title>",
-      "paragraph": <number>,
-      "full_text": "<exact quoted text of the matching clause>",
-      "differences": [
-        {{
-          "aspect": "<what differs, e.g., 'termination period'>",
-          "apple": "<Apple's version>",
-          "theirs": "<their version>"
-        }}
-      ],
-      "legal_note": "<explanation of legal significance, especially for SIMILAR matches>"
-    }}
-  ],
-  "analysis": "<Overall comparison summary explaining the relationship between the Apple clause and what was found in this document>"
-}}
+Valid JSON only with: classification, has_multiple_aspects, summary, matches[], analysis.
 
 IMPORTANT:
-- Return ONLY valid JSON, no markdown code blocks, no explanatory text before or after
-- If no matches found, return classification: "NOT_PRESENT" with empty matches array
-- For IDENTICAL matches, differences array should be empty
-- Section and paragraph numbers must match what's in the document
-- Full quoted text must be EXACT verbatim copies from the document — preserve the original capitalization, punctuation, and formatting exactly as written. Do NOT convert text to uppercase, title case, or any other case that differs from the source document.
-- In the "differences" table, the "apple" and "theirs" values must also preserve original casing exactly as they appear in each respective document"""
+- Return ONLY valid JSON
+- Full quoted text must be EXACT verbatim copies — preserve original casing"""
     
     return {
         "pdf": default_pdf,

@@ -13,18 +13,22 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 function MatchCard({ match, index, isPdf }: { match: Match; index: number; isPdf: boolean }) {
   const [open, setOpen] = useState(false);
   const isIdentical = match.type === "IDENTICAL";
+  const isNotPresent = match.type === "NOT_PRESENT";
+  const badgeVariant = isIdentical ? "success" : isNotPresent ? "neutral" : "warning";
 
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
       <CollapsibleTrigger asChild>
         <button className="flex w-full items-center gap-3 rounded-lg border bg-muted/30 px-4 py-3 text-left transition-colors hover:bg-muted/50">
           {open ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
-          <span className="text-sm font-medium">Match {index + 1}</span>
-          <Badge variant={isIdentical ? "success" : "warning"} className="text-xs">
-            {match.type}
+          <span className="text-sm font-medium">
+            {match.aspect_label ? `${match.aspect_label}` : `Match ${index + 1}`}
+          </span>
+          <Badge variant={badgeVariant} className="text-xs">
+            {match.type === "NOT_PRESENT" ? "NOT PRESENT" : match.type}
           </Badge>
           <span className="ml-auto truncate text-xs text-muted-foreground">
-            {match.section_title || `Section ${match.section}`}
+            {isNotPresent ? "No match found" : (match.section_title || `Section ${match.section}`)}
           </span>
         </button>
       </CollapsibleTrigger>

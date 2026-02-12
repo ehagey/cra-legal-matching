@@ -10,10 +10,10 @@ load_dotenv()
 # OpenRouter API Configuration
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
-MODEL_NAME = "anthropic/claude-sonnet-4.5"
+MODEL_NAME = "openai/gpt-5-mini"
 PDF_ENGINE = "pdf-text"
 TEMPERATURE = 0
-MAX_TOKENS = 4000
+MAX_TOKENS = 100000
 
 # Jina AI Configuration
 JINA_API_KEY = os.getenv("JINA_API_KEY", "")
