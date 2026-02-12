@@ -4,20 +4,6 @@ import type { AnalysisResult, Aspect } from "./types";
 // Helpers
 // ---------------------------------------------------------------------------
 
-function parseClauseTitle(appleClause: string): { title: string; sectionRef: string } {
-  const lines = appleClause.split("\n").map((l) => l.trim()).filter(Boolean);
-  if (lines.length >= 2 && /clause\s*:?\s*$/i.test(lines[0])) {
-    const title = lines[0].replace(/:?\s*$/, "").trim();
-    const rest = lines.slice(1).join(" ");
-    const sectionMatch = rest.match(
-      /^((?:Schedule\s+\d+(?:\.\d+)*\s*,\s*)?(?:Exhibit\s+\w+\s*,\s*)?(?:Section|Article)\s+[\d.]+(?:\.\w+)*(?:\s+of\s+Schedule\s+\d+(?:\s+and\s+\d+)?)?)\s*:/i
-    );
-    const sectionRef = sectionMatch ? sectionMatch[1].trim() : "";
-    return { title, sectionRef };
-  }
-  return { title: appleClause.slice(0, 80), sectionRef: "" };
-}
-
 function esc(values: string[]): string {
   return values
     .map((v) => {
@@ -95,7 +81,7 @@ export function exportResultsToCSV(results: AnalysisResult[]): string {
   // Header
   rows.push(esc([
     "Clause #",
-    "Clause Title",
+    "Clause Text",
     "Document",
     "Overall",
     "Aspect",
@@ -110,7 +96,6 @@ export function exportResultsToCSV(results: AnalysisResult[]): string {
   for (let ci = 0; ci < clauseOrder.length; ci++) {
     const clause = clauseOrder[ci];
     const clauseNum = ci + 1;
-    const { title } = parseClauseTitle(clause);
     const aspects = clauseAspects[clause] || [];
 
     let firstClauseRow = true;
@@ -130,7 +115,7 @@ export function exportResultsToCSV(results: AnalysisResult[]): string {
       if (r.classification === "ERROR") {
         rows.push(esc([
           firstClauseRow ? `Clause ${clauseNum}` : "",
-          firstClauseRow ? title : "",
+          firstClauseRow ? clause : "",
           doc,
           "ERROR",
           "",
@@ -151,7 +136,7 @@ export function exportResultsToCSV(results: AnalysisResult[]): string {
 
         rows.push(esc([
           firstClauseRow ? `Clause ${clauseNum}` : "",
-          firstClauseRow ? title : "",
+          firstClauseRow ? clause : "",
           firstDocRow ? doc : "",
           firstDocRow ? (r.classification === "NOT_PRESENT" ? "NOT PRESENT" : r.classification) : "",
           aspect.label,

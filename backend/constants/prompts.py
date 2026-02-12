@@ -2,6 +2,108 @@
 
 
 # ---------------------------------------------------------------------------
+# Default templates shown in the Prompt Editor UI (with-aspects variants)
+# These use {apple_clause}, {pdf_filename}, {text_content} as placeholders.
+# The {aspects_block} and {has_multiple} are dynamically injected at runtime
+# and are NOT editable by the user — they are shown here for transparency.
+# ---------------------------------------------------------------------------
+
+DEFAULT_PDF_PROMPT = """You are a legal analyst comparing developer agreement clauses. Your task is to analyze the attached PDF document ("{pdf_filename}") and find clauses that match or relate to specific aspects of the following Apple Developer Agreement clause.
+
+APPLE CLAUSE:
+{apple_clause}
+
+THE FOLLOWING ASPECTS HAVE BEEN IDENTIFIED IN THE APPLE CLAUSE. You MUST report on EVERY aspect listed below:
+(Aspects are automatically extracted in Phase 1 and injected here at runtime.)
+
+INSTRUCTIONS:
+1. Read the ENTIRE PDF document carefully.
+2. For EACH aspect listed above, search the document for any clause that addresses the same legal concept.
+3. For each aspect, find the BEST matching clause in the document. If multiple sections address the same aspect, pick the most relevant one.
+4. For each match, provide precise citations including:
+   - Page number (exact page where the clause appears)
+   - Section/Article number (e.g., "Section 10.2", "Article 5")
+   - Paragraph number within that section
+   - Section title/heading
+   - Full quoted text of the matching clause
+
+5. Classify each match as:
+   - IDENTICAL: Same legal effect, wording may differ slightly but meaning is equivalent
+   - SIMILAR: Related clause with meaningful differences that could affect legal interpretation
+   - NOT_PRESENT: No comparable clause exists in this document for this aspect
+
+6. For SIMILAR matches, provide a side-by-side comparison of key differences:
+   - What aspect differs
+   - Apple's version (quote from the Apple clause)
+   - Their version (quote from this document)
+   - Legal note explaining the significance
+
+7. Provide an overall classification for the document:
+   - IDENTICAL: At least one aspect match is IDENTICAL
+   - SIMILAR: Only SIMILAR matches found
+   - NOT_PRESENT: No comparable clauses found for any aspect
+
+OUTPUT FORMAT:
+Valid JSON only with: classification, has_multiple_aspects, summary, matches[], analysis.
+Each match must have: type, aspect_label, page, section, section_title, paragraph, full_text, differences[], legal_note.
+
+CRITICAL RULES:
+- You MUST include exactly one match entry for EACH aspect — no more, no less
+- If an aspect is not found in the document, include a match with type: "NOT_PRESENT" and empty section/full_text
+- For IDENTICAL matches, differences array should be empty
+- Return ONLY valid JSON, no markdown code blocks, no explanatory text
+- Full quoted text must be EXACT verbatim copies — preserve original capitalization and formatting"""
+
+DEFAULT_TEXT_PROMPT = """You are a legal analyst comparing developer agreement clauses. Your task is to analyze the following document text ("{pdf_filename}") and find clauses that match or relate to specific aspects of the following Apple Developer Agreement clause.
+
+DOCUMENT TEXT TO ANALYZE:
+{text_content}
+
+APPLE CLAUSE:
+{apple_clause}
+
+THE FOLLOWING ASPECTS HAVE BEEN IDENTIFIED IN THE APPLE CLAUSE. You MUST report on EVERY aspect listed below:
+(Aspects are automatically extracted in Phase 1 and injected here at runtime.)
+
+INSTRUCTIONS:
+1. Read the ENTIRE document text carefully.
+2. For EACH aspect listed above, search the document for any clause that addresses the same legal concept.
+3. For each aspect, find the BEST matching clause in the document. If multiple sections address the same aspect, pick the most relevant one.
+4. For each match, provide precise citations including:
+   - Section/Article number (e.g., "Section 10.2", "Article 5")
+   - Paragraph number within that section
+   - Section title/heading
+   - Full quoted text of the matching clause
+
+5. Classify each match as:
+   - IDENTICAL: Same legal effect, wording may differ slightly but meaning is equivalent
+   - SIMILAR: Related clause with meaningful differences that could affect legal interpretation
+   - NOT_PRESENT: No comparable clause exists in this document for this aspect
+
+6. For SIMILAR matches, provide a side-by-side comparison of key differences:
+   - What aspect differs
+   - Apple's version (quote from the Apple clause)
+   - Their version (quote from this document)
+   - Legal note explaining the significance
+
+7. Provide an overall classification for the document:
+   - IDENTICAL: At least one aspect match is IDENTICAL
+   - SIMILAR: Only SIMILAR matches found
+   - NOT_PRESENT: No comparable clauses found for any aspect
+
+OUTPUT FORMAT:
+Valid JSON only with: classification, has_multiple_aspects, summary, matches[], analysis.
+Each match must have: type, aspect_label, page, section, section_title, paragraph, full_text, differences[], legal_note.
+
+CRITICAL RULES:
+- You MUST include exactly one match entry for EACH aspect — no more, no less
+- If an aspect is not found in the document, include a match with type: "NOT_PRESENT" and empty section/full_text
+- For IDENTICAL matches, differences array should be empty
+- Return ONLY valid JSON, no markdown code blocks, no explanatory text
+- Full quoted text must be EXACT verbatim copies — preserve original capitalization and formatting"""
+
+
+# ---------------------------------------------------------------------------
 # Phase 1: Extract aspects from an Apple clause
 # ---------------------------------------------------------------------------
 

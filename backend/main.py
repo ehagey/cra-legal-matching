@@ -246,6 +246,7 @@ async def progress(job_id: str):
 async def get_prompt():
     """Get current custom prompts."""
     from prompt_store import get_custom_prompt
+    from constants.prompts import DEFAULT_PDF_PROMPT, DEFAULT_TEXT_PROMPT
     
     custom = get_custom_prompt()
     if custom:
@@ -255,65 +256,9 @@ async def get_prompt():
             "has_custom": True,
         }
     
-    # Return default prompts (raw templates with placeholders).
-    # NOTE: The system now uses a two-phase approach:
-    #   Phase 1: Aspects are extracted from each Apple clause first (separate LLM call)
-    #   Phase 2: The comparison prompt is augmented with those pre-defined aspects
-    # The templates below are the fallback (no pre-defined aspects) variants.
-    default_pdf = """You are a legal analyst comparing developer agreement clauses. Your task is to analyze the attached PDF document ("{pdf_filename}") and find ALL clauses that match or relate to the following Apple Developer Agreement clause.
-
-APPLE CLAUSE TO FIND:
-{apple_clause}
-
-INSTRUCTIONS:
-1. Read the ENTIRE PDF document carefully
-2. Find ALL clauses that match or relate to the Apple clause. Not just the best match.
-3. For each match, provide precise citations including page number, section/article number, paragraph number, section title, and full quoted text.
-
-5. Classify each match as:
-   - IDENTICAL: Same legal effect
-   - SIMILAR: Related with meaningful differences
-
-6. For SIMILAR matches, provide a side-by-side comparison of key differences.
-7. Every match MUST include an "aspect_label" field (2-5 words).
-
-OUTPUT FORMAT:
-Valid JSON only with: classification, has_multiple_aspects, summary, matches[], analysis.
-
-IMPORTANT:
-- Return ONLY valid JSON
-- Full quoted text must be EXACT verbatim copies — preserve original casing"""
-
-    default_text = """You are a legal analyst comparing developer agreement clauses. Your task is to analyze the following document text ("{pdf_filename}") and find ALL clauses that match or relate to the following Apple Developer Agreement clause.
-
-DOCUMENT TEXT TO ANALYZE:
-{text_content}
-
-APPLE CLAUSE TO FIND:
-{apple_clause}
-
-INSTRUCTIONS:
-1. Read the ENTIRE document text carefully
-2. Find ALL clauses that match or relate to the Apple clause. Not just the best match.
-3. For each match, provide precise citations including section/article number, paragraph number, section title, and full quoted text.
-
-5. Classify each match as:
-   - IDENTICAL: Same legal effect
-   - SIMILAR: Related with meaningful differences
-
-6. For SIMILAR matches, provide a side-by-side comparison of key differences.
-7. Every match MUST include an "aspect_label" field (2-5 words).
-
-OUTPUT FORMAT:
-Valid JSON only with: classification, has_multiple_aspects, summary, matches[], analysis.
-
-IMPORTANT:
-- Return ONLY valid JSON
-- Full quoted text must be EXACT verbatim copies — preserve original casing"""
-    
     return {
-        "pdf": default_pdf,
-        "text": default_text,
+        "pdf": DEFAULT_PDF_PROMPT,
+        "text": DEFAULT_TEXT_PROMPT,
         "has_custom": False,
     }
 

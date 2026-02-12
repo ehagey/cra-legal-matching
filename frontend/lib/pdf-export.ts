@@ -2,12 +2,37 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import type { AnalysisResult, Aspect, Match } from "./types";
 
+/**
+ * Sanitize text for jsPDF rendering:
+ *  - Collapse all kinds of Unicode whitespace into plain spaces
+ *  - Remove control characters
+ *  - Collapse multiple consecutive spaces into one
+ *  - Trim leading/trailing whitespace per line
+ */
+function sanitize(text: string): string {
+  if (!text) return "";
+  return text
+    // Replace all Unicode whitespace characters with a regular space
+    .replace(/[\u00A0\u1680\u2000-\u200B\u202F\u205F\u3000\uFEFF]/g, " ")
+    // Remove control characters (except newline and tab)
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "")
+    // Replace tabs with spaces
+    .replace(/\t/g, "  ")
+    // Collapse multiple spaces into one (preserving newlines)
+    .replace(/ {2,}/g, " ")
+    // Trim each line
+    .split("\n").map((l) => l.trim()).join("\n")
+    // Collapse multiple blank lines into one
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 function parseTitle(clause: string): string {
   const lines = clause.split("\n").map((l) => l.trim()).filter(Boolean);
   if (lines.length >= 2 && /clause\s*:?\s*$/i.test(lines[0])) {
     return lines[0].replace(/:?\s*$/, "").trim();
   }
-  return clause.length > 80 ? clause.slice(0, 80) + "…" : clause;
+  return clause.length > 80 ? clause.slice(0, 80) + "..." : clause;
 }
 
 function shortDoc(name: string): string {
@@ -56,10 +81,13 @@ export function downloadPDF(results: AnalysisResult[]) {
 
   /** Print wrapped text line-by-line with page-break safety. */
   const wrappedText = (text: string, fontSize: number, color: [number, number, number], style: string = "normal", indent: number = 0) => {
+    const clean = sanitize(text);
+    if (!clean) return;
     doc.setFontSize(fontSize);
     doc.setFont("helvetica", style);
     doc.setTextColor(...color);
-    const lines: string[] = doc.splitTextToSize(text, usable - indent);
+    const maxW = usable - indent;
+    const lines: string[] = doc.splitTextToSize(clean, maxW);
     const lineH = fontSize * 0.5;
     const step = lineH + 0.5;
     for (const line of lines) {
@@ -72,10 +100,13 @@ export function downloadPDF(results: AnalysisResult[]) {
 
   /** Print quoted text with a gray left bar, handling page breaks. */
   const quotedText = (text: string) => {
+    const clean = sanitize(text);
+    if (!clean) return;
     doc.setFontSize(7.5);
     doc.setFont("helvetica", "normal");
     doc.setTextColor(51, 65, 85);
-    const lines: string[] = doc.splitTextToSize(text, usable - 12);
+    const maxW = usable - 12;
+    const lines: string[] = doc.splitTextToSize(clean, maxW);
     const lineH = 3.5;
     const step = lineH + 0.4;
     let barStart = y;
@@ -183,14 +214,25 @@ export function downloadPDF(results: AnalysisResult[]) {
 
       need(8);
 
-      // Document name + classification
+      // Document name + classification (wrap doc name if needed)
+      const docName = sanitize(shortDoc(dn));
+      const badge = displayType(r.classification);
+      const badgeW = 30; // reserve space for badge
       doc.setFontSize(9);
       doc.setFont("helvetica", "bold");
       doc.setTextColor(...SUB);
-      doc.text(shortDoc(dn), M + 2, y + 3);
-      doc.setTextColor(...cc(r.classification));
-      doc.text(displayType(r.classification), W - M - 2, y + 3, { align: "right" });
-      y += 6;
+      const docLines: string[] = doc.splitTextToSize(docName, usable - badgeW - 4);
+      for (let dl = 0; dl < docLines.length; dl++) {
+        need(5);
+        doc.setTextColor(...SUB);
+        doc.text(docLines[dl], M + 2, y + 3);
+        if (dl === 0) {
+          doc.setTextColor(...cc(r.classification));
+          doc.text(badge, W - M - 2, y + 3, { align: "right" });
+        }
+        y += 5;
+      }
+      y += 1;
 
       if (r.classification === "ERROR") {
         wrappedText(r.error || "Error", 8, RED, "normal", 4);
@@ -243,7 +285,7 @@ export function downloadPDF(results: AnalysisResult[]) {
         if (m.differences && m.differences.length > 0) {
           need(8);
           const diffHead = [["Aspect", "Apple's Version", "Their Version"]];
-          const diffBody = m.differences.map((d) => [d.aspect || "", d.apple || "", d.theirs || ""]);
+          const diffBody = m.differences.map((d) => [sanitize(d.aspect || ""), sanitize(d.apple || ""), sanitize(d.theirs || "")]);
 
           autoTable(doc, {
             startY: y,
